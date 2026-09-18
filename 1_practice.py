@@ -32,6 +32,7 @@ class Player:
 
         if self.status['paralysis_turn'] > 0:
             print()
+            time.sleep(1)
             print(f"{self.name}は痺れている！(残り{self.status['paralysis_turn']-1}ターン)")
 
             paralysis_damage = 5
@@ -44,6 +45,7 @@ class Player:
 
         if self.status['poison_turn'] > 0:
             print()
+            time.sleep(1)
             print(f"{self.name}は毒に侵されている！(残り{self.status['poison_turn']-1}ターン)")
 
             poison_damage = 15
@@ -59,6 +61,10 @@ class Player:
 
     def show_status(self):
         print(f"{self.name} HP: {self.hp}/{self.maxhp}")
+
+    def check_down(self):
+        if self.hp <= 0:
+            print(f"{self.name}は倒れた！")
 
 
 class Hero(Player):
@@ -130,6 +136,9 @@ class Hero(Player):
                 if not success:
                     continue
                 self.attack(targets[selected_id])
+
+                targets[selected_id].check_down()
+
                 return True
 
             elif action == 1:
@@ -145,7 +154,10 @@ class Hero(Player):
 
                 success = self.fire(targets[selected_id])
                 if not success:
-                    return False
+                    continue
+
+                targets[selected_id].check_down()
+
                 return True
 
             else:
@@ -176,8 +188,10 @@ class Hero(Player):
             elif targets[selected_id].hp <= 0:
                 print("すでに倒しています")
                 continue
-            else:
-                return True, selected_id
+
+            print()
+
+            return True, selected_id
 
     def fire(self, target):
 
@@ -218,6 +232,7 @@ class Monster(Player):
         target.take_damage(damage)
 
         if random.random() <= 0.75:
+            time.sleep(1)
             target.status['poison_turn'] = 3
             print(f"{target.name}は毒にかかった！")
 
@@ -229,10 +244,11 @@ class Monster(Player):
         target.take_damage(damage)
 
         if random.random() <= 0.25:
-            target.status['paralysis_turn'] = 3
+            time.sleep(1)
+            target.status['paralysis_turn'] = 1
             print(f"{target.name}は麻痺にかかった！")
 
-    def choose_target(targets):
+    def choose_target(self, targets):
         n = len(targets)
 
         while True:
@@ -252,7 +268,7 @@ def calculation_damage(attack_power) -> int:
 
     damage = round(attack_power*(1 + random.randint(-fluctuation,fluctuation)/100))
 
-    p_critical = 25 #クリティカル確率％
+    p_critical = 20 #クリティカル確率％
 
     if random.random() < p_critical/100:
         damage = 2*damage
@@ -277,7 +293,7 @@ def battle(players, monsters):
     print(
         "======================\n"
         "Battle!!\n"
-        f"{", ".join(player.name for player in players)} vs {", ".join(monster.name for monster in monsters)}\n"
+        f"{', '.join(player.name for player in players)} vs {', '.join(monster.name for monster in monsters)}\n"
         "======================"
     )
     print()
@@ -302,34 +318,49 @@ def battle(players, monsters):
 
                 player.show_status()
 
-                success = player.check_debuff()
-
-                if not success:
-                    continue
+                can_act = player.check_debuff()
 
                 if player.hp <= 0:
                     print(f"{player.name}は倒れてしまった！")
 
-                iswipedout = check_wipedout(players)
+                    my_wipedout = check_wipedout(players)
 
-                if iswipedout:
-                    print(f"{', '.join(player.name for player in players)}は全滅した")
-                    break
+                    if my_wipedout:
+                        print(f"{', '.join(player.name for player in players)}は全滅した")
+                        break
+
+                    continue
+
+                if not can_act:
+                    continue
 
                 success = player.choose_action(monsters)
 
                 if not success:
                     continue
 
-                time.sleep(1)
-                print(1)
+                op_wipedout = check_wipedout(monsters)
 
-            if iswipedout:
-                print(f"<< {", ".join(monster.name for monster in monsters)}の勝利 >>")
+                if op_wipedout:
+                    print()
+                    time.sleep(1)
+                    print(f"{', '.join(monster.name for monster in monsters)}は全滅した")
+                    break
+
+                time.sleep(1)
+                print()
+
+            if my_wipedout:
+                print()
+                time.sleep(1)
+                print(f"<< {', '.join(monster.name for monster in monsters)}の勝利 >>")
                 break
 
-            time.sleep(2)
-            print()
+            if op_wipedout:
+                print()
+                time.sleep(1)
+                print(f"<< {', '.join(player.name for player in players)}の勝利 >>")
+                break
 
 
             turn = "monsters"
@@ -358,20 +389,26 @@ def battle(players, monsters):
                 else:
                     monster.attack(players[selected_id])
 
-                time.sleep(2)
-                print()
+                time.sleep(1)
 
                 if players[selected_id].hp <= 0:
+                    print()
                     print(f"{players[selected_id].name}は倒れてしまった！")
 
-                iswipedout = check_wipedout(players)
+                op_wipedout = check_wipedout(players)
 
-                if iswipedout:
+                if op_wipedout:
+                    print()
+                    time.sleep(1)
                     print(f"{', '.join(player.name for player in players)}は全滅した")
                     break
 
-            if iswipedout:
-                print(f"<< {", ".join(monster.name for monster in monsters)}の勝利 >>")
+                print()
+
+            if op_wipedout:
+                print()
+                time.sleep(1)
+                print(f"<< {', '.join(monster.name for monster in monsters)}の勝利 >>")
                 break
 
             turn = "players"
@@ -408,12 +445,13 @@ def main():
     time.sleep(1)
 
     players = [
-        Hero("勇者", 100, 30, 20)
+        Hero("勇者", 200, 30, 20)
     ]
+
     slimes = [
         Monster("スライムA", 50, 10),
-        Monster("スライムB", 70, 12),
-        Monster("スライムC", 40, 8)
+        Monster("スライムB", 70, 8),
+        Monster("スライムC", 40, 12)
     ]
 
     battle(players, slimes)
