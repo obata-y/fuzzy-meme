@@ -59,9 +59,6 @@ class Player:
     def heal_hp(self, healpt):
         self.hp = min(self.hp + healpt, self.maxhp)
 
-    def show_status(self):
-        print(f"{self.name} HP: {self.hp}/{self.maxhp}")
-
     def check_down(self):
         if self.hp <= 0:
             print(f"{self.name}は倒れた！")
@@ -73,6 +70,9 @@ class Hero(Player):
         super().__init__(name, maxhp, attack_power)
         self.mp = maxmp
         self.maxmp = maxmp
+
+    def show_status(self):
+        print(f"{self.name} HP: {self.hp}/{self.maxhp} MP: {self.mp}/{self.maxmp}")
 
     def use_mp(self, mpcost):
         self.mp -= mpcost
@@ -217,6 +217,9 @@ class Monster(Player):
     def __init__(self, name, maxhp, attack_power):
         super().__init__(name, maxhp, attack_power)
 
+    def show_status(self):
+        print(f"{self.name} HP: {self.hp}/{self.maxhp}")
+
     def special_attack(self, target):
         print(f"{self.name}の体当たり！")
 
@@ -302,11 +305,12 @@ def battle(players, monsters):
 
     turn ="players"
 
+    pl_wipedout = False
+    mo_wipedout = False
+
     while True:
 
         if turn == "players":
-
-            end_choose_action = False
 
             for i, player in enumerate(players):
 
@@ -323,9 +327,9 @@ def battle(players, monsters):
                 if player.hp <= 0:
                     print(f"{player.name}は倒れてしまった！")
 
-                    my_wipedout = check_wipedout(players)
+                    pl_wipedout = check_wipedout(players)
 
-                    if my_wipedout:
+                    if pl_wipedout:
                         print(f"{', '.join(player.name for player in players)}は全滅した")
                         break
 
@@ -339,9 +343,9 @@ def battle(players, monsters):
                 if not success:
                     continue
 
-                op_wipedout = check_wipedout(monsters)
+                mo_wipedout = check_wipedout(monsters)
 
-                if op_wipedout:
+                if mo_wipedout:
                     print()
                     time.sleep(1)
                     print(f"{', '.join(monster.name for monster in monsters)}は全滅した")
@@ -350,13 +354,13 @@ def battle(players, monsters):
                 time.sleep(1)
                 print()
 
-            if my_wipedout:
+            if pl_wipedout:
                 print()
                 time.sleep(1)
                 print(f"<< {', '.join(monster.name for monster in monsters)}の勝利 >>")
                 break
 
-            if op_wipedout:
+            if mo_wipedout:
                 print()
                 time.sleep(1)
                 print(f"<< {', '.join(player.name for player in players)}の勝利 >>")
@@ -374,9 +378,9 @@ def battle(players, monsters):
 
                 monster.show_status()
 
-                p_special = 10 # 特殊攻撃確率％
-                p_poison = 10 # 毒攻撃確率％
-                p_paralysis = 10 # 麻痺攻撃確率％
+                p_special = 10 # ％
+                p_poison = 10
+                p_paralysis = 10
 
                 selected_id = monster.choose_target(players)
 
@@ -395,9 +399,9 @@ def battle(players, monsters):
                     print()
                     print(f"{players[selected_id].name}は倒れてしまった！")
 
-                op_wipedout = check_wipedout(players)
+                pl_wipedout = check_wipedout(players)
 
-                if op_wipedout:
+                if pl_wipedout:
                     print()
                     time.sleep(1)
                     print(f"{', '.join(player.name for player in players)}は全滅した")
@@ -405,7 +409,7 @@ def battle(players, monsters):
 
                 print()
 
-            if op_wipedout:
+            if pl_wipedout:
                 print()
                 time.sleep(1)
                 print(f"<< {', '.join(monster.name for monster in monsters)}の勝利 >>")
@@ -445,7 +449,8 @@ def main():
     time.sleep(1)
 
     players = [
-        Hero("勇者", 200, 30, 20)
+        Hero("勇者", 200, 30, 20),
+        Hero("戦士", 150, 0, 40)
     ]
 
     slimes = [
