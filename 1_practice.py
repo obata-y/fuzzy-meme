@@ -211,70 +211,6 @@ class Hero(Player):
             print("MPが足りません！")
             return False
 
-
-class Monster(Player):
-
-    def __init__(self, name, maxhp, attack_power):
-        super().__init__(name, maxhp, attack_power)
-
-    def show_status(self):
-        print(f"{self.name} HP: {self.hp}/{self.maxhp}")
-
-    def special_attack(self, target):
-        print(f"{self.name}の体当たり！")
-
-        damage = calculation_damage(self.attack_power)
-        damage = round(damage * 1.1)
-        target.take_damage(damage)
-
-    def poison_attack(self, target):
-        print(f"{self.name}の毒液！")
-
-        damage = calculation_damage(self.attack_power)
-        damage = round(damage * 0.7)
-        target.take_damage(damage)
-
-        if random.random() <= 0.75:
-            time.sleep(1)
-            target.status['poison_turn'] = 3
-            print(f"{target.name}は毒にかかった！")
-
-    def paralysis_attack(self, target):
-        print(f"{self.name}の電撃！")
-
-        damage = calculation_damage(self.attack_power)
-        damage = round(damage * 0.7)
-        target.take_damage(damage)
-
-        if random.random() <= 0.25:
-            time.sleep(1)
-            target.status['paralysis_turn'] = 1
-            print(f"{target.name}は麻痺にかかった！")
-
-    def choose_attack(self):
-
-        hp_ratio = self.hp / self.maxhp
-
-        selected_id = random.choices(
-            list(slime_attacks.keys()), #キー(数字)を返す
-            [data["weight"](hp_ratio) for data in slime_attacks.values()], # values()で{"name"...}の部分を取得
-            k=1
-        )[0]
-
-        return selected_id
-
-    def choose_target(self, targets):
-        n = len(targets)
-
-        while True:
-            selected_id = random.randrange(0, n)
-            if targets[selected_id].hp == 0:
-                continue
-            break
-
-        return selected_id
-
-
 #=======================================================================
 
 def calculation_damage(attack_power) -> int:
@@ -392,12 +328,7 @@ def battle(players, monsters):
 
                 selected_id = monster.choose_target(players)
 
-                attack_id = monster.choose_attack()
-
-                slime_attacks[attack_id]["function"](
-                    monster,
-                    players[selected_id]
-                )
+                monster.act(players[selected_id])
 
                 time.sleep(1)
 
@@ -464,16 +395,16 @@ slime_attacks = {
     }
 }
 
-Gobrin_attack = {
-    0: {
+gobrin_attacks = {
+    10: {
         "name": "攻撃",
         "function": Player.attack,
-        "weight": lambda x: 10
+        "weight": lambda x:3
     },
-    1: {
+    20: {
         "name": "体当たり",
         "function": Monster.special_attack,
-        "weight": lambda x: -10*x+15
+        "weight": lambda x: 7
     }
 }
 
@@ -495,13 +426,13 @@ def main():
         Hero("戦士", 150, 0, 40)
     ]
 
-    slimes = [
-        Monster("スライムA", 50, 10),
-        Monster("スライムB", 70, 8),
-        Monster("スライムC", 40, 12)
+    monsters = [
+        Monster("スライムA", 50, 10, slime_attacks),
+        Monster("スライムB", 70, 8, slime_attacks),
+        Monster("ゴブリンA", 80, 15, gobrin_attacks)
     ]
 
-    battle(players, slimes)
+    battle(players, monsters)
 
 if __name__ == "__main__":
     main()
