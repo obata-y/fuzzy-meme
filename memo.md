@@ -80,6 +80,10 @@ selected = random.choices(　# -> listで返す
 
 selected["function"]()
 
+## random.choice()の注意点
+
+for id in slime_attacks で書いたときは「キー」が返る（イテレートの挙動）
+slime_attacks[idx] で書いたときは「値（辞書）」が返る（インデックスアクセスの挙動）<- random.choice()はこの方法で第一引数にアクセスしている
 
 
 # lambdaの使い方を学ぼう
@@ -124,3 +128,5 @@ selected = random.choices(
 )[0]
 
 print(selected["name"])
+
+

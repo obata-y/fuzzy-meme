@@ -256,8 +256,8 @@ class Monster(Player):
         hp_ratio = self.hp / self.maxhp
 
         selected_id = random.choices(
-            slime_attacks,
-            [id["weight"](hp_ratio) for id in slime_attacks],
+            list(slime_attacks.keys()), #キー(数字)を返す
+            [data["weight"](hp_ratio) for data in slime_attacks.values()], # values()で{"name"...}の部分を取得
             k=1
         )[0]
 
@@ -460,6 +460,19 @@ slime_attacks = {
     3: {
         "name": "電撃",
         "function": Monster.paralysis_attack,
+        "weight": lambda x: -10*x+15
+    }
+}
+
+Gobrin_attack = {
+    0: {
+        "name": "攻撃",
+        "function": Player.attack,
+        "weight": lambda x: 10
+    },
+    1: {
+        "name": "体当たり",
+        "function": Monster.special_attack,
         "weight": lambda x: -10*x+15
     }
 }
