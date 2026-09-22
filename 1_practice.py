@@ -66,10 +66,11 @@ class Player:
 
 class Hero(Player):
 
-    def __init__(self, name, maxhp, maxmp, attack_power):
+    def __init__(self, name, maxhp, maxmp, attack_power, inventory):
         super().__init__(name, maxhp, attack_power)
         self.mp = maxmp
         self.maxmp = maxmp
+        self.inventory = inventory
 
     def show_status(self):
         print(f"{self.name} HP: {self.hp}/{self.maxhp} MP: {self.mp}/{self.maxmp}")
@@ -79,28 +80,21 @@ class Hero(Player):
 
     def use_item(self, item_id) -> bool:
 
-        if item_id not in items:
-            print("アイテムが存在しません")
+        heal_pt = self.inventory.use(item_id)
+
+        if heal_pt is  None:
             return False
 
-        item_data = items[item_id]
+        self.heal_hp(heal_pt)
 
-        if item_data["count"] <= 0:
-            print("そのアイテムはもうありません")
-            return False
+        print(f"{self.name}は{heal_pt}の回復！(残HP{self.hp}/{self.maxhp})")
 
-        print(f"{item_data['name']}を使った！")
-        self.heal_hp(item_data["heal"])
-
-        item_data['count'] -= 1
-
-        print(f"{self.name}は{item_data['heal']}の回復！(残HP{self.hp}/{self.maxhp})")
         return True
 
     def choose_item(self) -> bool:
         while True:
-            for item_id, item_data in items.items():
-                print(f"└[{item_id}: {item_data['name']}(+HP{item_data['heal']}) × {item_data['count']}]")
+
+            self.inventory.show_items()
             print("└[-1: 戻る]")
 
             try:
@@ -210,6 +204,100 @@ class Hero(Player):
         else:
             print("MPが足りません！")
             return False
+
+
+class Monster(Player):
+
+    def __init__(self, name, maxhp, attack_power, attacks):
+        super().__init__(name, maxhp, attack_power)
+        self.attacks = attacks
+
+    def show_status(self):
+        print(f"{self.name} HP: {self.hp}/{self.maxhp}")
+
+    def special_attack(self, target):
+        print(f"{self.name}の体当たり！")
+
+        damage = calculation_damage(self.attack_power)
+        damage = round(damage * 1.1)
+        target.take_damage(damage)
+
+    def poison_attack(self, target):
+        print(f"{self.name}の毒液！")
+
+        damage = calculation_damage(self.attack_power)
+        damage = round(damage * 0.7)
+        target.take_damage(damage)
+
+        if random.random() <= 0.75:
+            time.sleep(1)
+            target.status['poison_turn'] = 3
+            print(f"{target.name}は毒にかかった！")
+
+    def paralysis_attack(self, target):
+        print(f"{self.name}の電撃！")
+
+        damage = calculation_damage(self.attack_power)
+        damage = round(damage * 0.7)
+        target.take_damage(damage)
+
+        if random.random() <= 0.25:
+            time.sleep(1)
+            target.status['paralysis_turn'] = 1
+            print(f"{target.name}は麻痺にかかった！")
+
+    def choose_attack(self):
+
+        hp_ratio = self.hp / self.maxhp
+
+        selected_id = random.choices(
+            list(self.attacks.keys()), #キー(数字)を返す
+            [data["weight"](hp_ratio) for data in self.attacks.values()], # values()で{"name"...}の部分を取得
+            k=1
+        )[0]
+
+        return selected_id
+
+    def choose_target(self, targets):
+        n = len(targets)
+
+        while True:
+            selected_id = random.randrange(0, n)
+            if targets[selected_id].hp == 0:
+                continue
+            break
+
+        return selected_id
+
+    def act(self, target):
+
+        attack_id = self.choose_attack()
+
+        self.attacks[attack_id]["function"](
+            self,
+            target
+            )
+
+class Inventory:
+    def __init__(self, items):
+        self.items= items
+
+    def show_items(self):
+        for item_id, item_data in self.items.items():
+            print(f"└[{item_id}: {item_data['name']}(+HP{item_data['heal']}) × {item_data['count']}]")
+
+    def use(self, item_id):
+        if item_id not in self.items.keys():
+            print("アイテムが存在しません")
+            return None
+        elif self.items[item_id]['count'] <= 0:
+            print("アイテムが存在しません")
+            return None
+        else:
+            self.items[item_id]['count'] -= 1
+            print(f"{self.items[item_id]['name']}を使用した！(残り{self.items[item_id]['count']}個)")
+            return self.items[item_id]["heal"]
+
 
 #=======================================================================
 
@@ -421,9 +509,11 @@ def main():
 
     time.sleep(1)
 
+    inventory = Inventory(items)
+
     players = [
-        Hero("勇者", 200, 30, 20),
-        Hero("戦士", 150, 0, 40)
+        Hero("勇者", 200, 30, 20, inventory),
+        Hero("戦士", 150, 0, 40, inventory)
     ]
 
     monsters = [
