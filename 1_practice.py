@@ -251,6 +251,18 @@ class Monster(Player):
             target.status['paralysis_turn'] = 1
             print(f"{target.name}は麻痺にかかった！")
 
+    def choose_attack(self):
+
+        hp_ratio = self.hp / self.maxhp
+
+        selected_id = random.choices(
+            slime_attacks,
+            [id["weight"](hp_ratio) for id in slime_attacks],
+            k=1
+        )[0]
+
+        return selected_id
+
     def choose_target(self, targets):
         n = len(targets)
 
@@ -378,20 +390,14 @@ def battle(players, monsters):
 
                 monster.show_status()
 
-                p_special = 10 # ％
-                p_poison = 10
-                p_paralysis = 10
-
                 selected_id = monster.choose_target(players)
 
-                if random.random() < p_special/100:
-                    monster.special_attack(players[selected_id])
-                elif random.random() < p_poison/100:
-                    monster.poison_attack(players[selected_id])
-                elif random.random() < p_paralysis/100:
-                    monster.paralysis_attack(players[selected_id])
-                else:
-                    monster.attack(players[selected_id])
+                attack_id = monster.choose_attack()
+
+                slime_attacks[attack_id]["function"](
+                    monster,
+                    players[selected_id]
+                )
 
                 time.sleep(1)
 
@@ -432,6 +438,29 @@ items = {
         "name": "上級回復薬",
         "heal": 60,
         "count": 1
+    }
+}
+
+slime_attacks = {
+    0: {
+        "name": "攻撃",
+        "function": Player.attack,
+        "weight": lambda x: 10
+    },
+    1: {
+        "name": "体当たり",
+        "function": Monster.special_attack,
+        "weight": lambda x: -10*x+15
+    },
+    2: {
+        "name": "毒液",
+        "function": Monster.poison_attack,
+        "weight": lambda x: -10*x+15
+    },
+    3: {
+        "name": "電撃",
+        "function": Monster.paralysis_attack,
+        "weight": lambda x: -10*x+15
     }
 }
 
