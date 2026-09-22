@@ -27,6 +27,17 @@ class Player:
 
         print(f"{self.name}に{damage}のダメージ！(残HP{self.hp}/{self.maxhp})")
 
+    def apply_status(self,debuff_key, turn) -> bool:
+        if debuff_key not in self.status:
+            return False
+        if self.hp <= 0:
+            return False
+        if turn <= 0:
+            return False
+
+        self.status[debuff_key] = max(turn, self.status[debuff_key])
+        return True
+
     def check_debuff(self) -> bool: # Falseでターンが飛ばされる
         can_act = True
 
@@ -56,8 +67,15 @@ class Player:
 
         return can_act
 
-    def heal_hp(self, healpt):
+    def heal_hp(self, healpt) -> int:
+
+        hp_before = self.hp
+
         self.hp = min(self.hp + healpt, self.maxhp)
+
+        actual_heal_pt = self.hp - hp_before
+
+        return actual_heal_pt
 
     def check_down(self):
         if self.hp <= 0:
@@ -85,9 +103,9 @@ class Hero(Player):
         if heal_pt is  None:
             return False
 
-        self.heal_hp(heal_pt)
+        actual_heal_pt = self.heal_hp(heal_pt)
 
-        print(f"{self.name}は{heal_pt}の回復！(残HP{self.hp}/{self.maxhp})")
+        print(f"{self.name}は{actual_heal_pt}の回復！(残HP{self.hp}/{self.maxhp})")
 
         return True
 
@@ -97,13 +115,7 @@ class Hero(Player):
             self.inventory.show_items()
             print("└[-1: 戻る]")
 
-            try:
-                item_id = int(input(
-                            "アイテムを選択してください："
-                        ))
-            except ValueError:
-                print("数字を入力してください！")
-                continue
+            item_id = input_int("使用するアイテムを選んでください：")
 
             if item_id == -1:
                 return False
@@ -114,14 +126,7 @@ class Hero(Player):
     def choose_action(self, targets) -> bool:
         while True:
 
-            try:
-                action = int(input(
-                    "行動を決めてください\n"
-                    "[0:攻撃 1:アイテム 2:ファイア(MP10)]:"
-                ))
-            except ValueError:
-                print("数字を入力してください！")
-                return False
+            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:ファイア(MP10)]:")
 
             print()
 
@@ -155,7 +160,8 @@ class Hero(Player):
                 return True
 
             else:
-                return False
+                print("選択肢から選んでください")
+                continue
 
     def choose_target(self, targets):
         while True:
@@ -166,13 +172,7 @@ class Hero(Player):
                 print(f"└[{i}: {target.name}(HP{target.hp}/{target.maxhp})]")
             print("└[-1: 戻る]")
 
-            try:
-                selected_id = int(input(
-                            "敵を選択してください："
-                        ))
-            except ValueError:
-                print("数字を入力してください！")
-                continue
+            selected_id = input_int("敵を選択してください：")
 
             if selected_id == -1:
                 return False, selected_id
@@ -230,9 +230,10 @@ class Monster(Player):
         target.take_damage(damage)
 
         if random.random() <= 0.75:
-            time.sleep(1)
-            target.status['poison_turn'] = 3
-            print(f"{target.name}は毒にかかった！")
+            success = target.apply_status("poison_turn", 3)
+            if success:
+                time.sleep(1)
+                print(f"{target.name}は毒にかかった！")
 
     def paralysis_attack(self, target):
         print(f"{self.name}の電撃！")
@@ -242,9 +243,10 @@ class Monster(Player):
         target.take_damage(damage)
 
         if random.random() <= 0.25:
-            time.sleep(1)
-            target.status['paralysis_turn'] = 1
-            print(f"{target.name}は麻痺にかかった！")
+            success = target.apply_status("paralysis_turn", 1)
+            if success:
+                time.sleep(1)
+                print(f"{target.name}は麻痺にかかった！")
 
     def choose_attack(self):
 
@@ -259,15 +261,12 @@ class Monster(Player):
         return selected_id
 
     def choose_target(self, targets):
-        n = len(targets)
+        survival_targets = [target for target in targets if target.hp > 0]
 
-        while True:
-            selected_id = random.randrange(0, n)
-            if targets[selected_id].hp == 0:
-                continue
-            break
+        if not survival_targets:
+            return None
 
-        return selected_id
+        return random.choice(survival_targets)
 
     def act(self, target):
 
@@ -324,6 +323,16 @@ def check_wipedout(group):
         return True
     else:
         return False
+
+def input_int(message="数字を入力してください："):
+    while True:
+        try:
+            number = int(input(message))
+            break
+        except ValueError:
+            print("数字を入力してください!")
+            continue
+    return number
 
 #=======================================================================
 
@@ -414,15 +423,21 @@ def battle(players, monsters):
 
                 monster.show_status()
 
-                selected_id = monster.choose_target(players)
+                target = monster.choose_target(players)
 
-                monster.act(players[selected_id])
+                if target is None:
+                    time.sleep(1)
+                    pl_wipedout = True
+                    print(f"{', '.join(player.name for player in players)}は全滅した")
+                    break
+
+                monster.act(target)
 
                 time.sleep(1)
 
-                if players[selected_id].hp <= 0:
+                if target.hp <= 0:
                     print()
-                    print(f"{players[selected_id].name}は倒れてしまった！")
+                    print(f"{target.name}は倒れてしまった！")
 
                 pl_wipedout = check_wipedout(players)
 
@@ -524,5 +539,87 @@ def main():
 
     battle(players, monsters)
 
+#=======================================================================
+
+def test_monster_choose_target():
+    fallen = Player("戦闘不能のキャラクター", 100, 10)
+    fallen.hp = 0
+
+    survivor = Player("生存者", 100, 10)
+
+    # 対象選択だけをテストするので、攻撃データは空でよい
+    monster = Monster("テスト用モンスター", 50, 10, {})
+
+    # 生存者が1体だけ
+    targets = [fallen, survivor]
+
+    target = monster.choose_target(targets)
+
+    assert target is survivor, "生存者が選ばれていません"
+
+    print("生存者1体のテスト成功")
+
+def test_apply_status():
+    # 現在の残りターン数、付与ターン数、期待する残りターン数
+    cases = [
+        (0, 3, 3),
+        (1, 3, 3),
+        (5, 3, 5),
+        (3, 3, 3),
+    ]
+
+    for current_turns, added_turns, expected_turns in cases:
+        player = Player("テスト用", 100, 10)
+        player.status["poison_turn"] = current_turns
+
+        success = player.apply_status("poison_turn", added_turns)
+
+        assert success is True
+        assert player.status["poison_turn"] == expected_turns, (
+            f"残り{current_turns}ターンに{added_turns}ターン付与："
+            f"期待値{expected_turns}、"
+            f"実際は{player.status['poison_turn']}"
+        )
+
+    print("状態異常のテスト成功")
+
+def test_apply_status_rejected():
+    # HP、状態異常のキー、付与ターン数
+    cases = [
+        (0, "poison_turn", 3),
+        (100, "unknown_status", 3),
+        (100, "poison_turn", 0),
+        (100, "poison_turn", -1),
+    ]
+
+    for hp, key, turns in cases:
+        player = Player("テスト用", 100, 10)
+        player.hp = hp
+        player.status["poison_turn"] = 2
+        player.status["paralysis_turn"] = 1
+
+        status_before = player.status.copy()
+
+        success = player.apply_status(key, turns)
+
+        assert success is False, (
+            f"拒否されるはずです：HP={hp}, key={key}, turns={turns}"
+        )
+        assert player.status == status_before, (
+            f"拒否したのに状態が変わりました：key={key}, turns={turns}"
+        )
+
+    print("状態異常拒否のテスト成功")
+
+def run_tests():
+    test_monster_choose_target()
+    test_apply_status()
+    test_apply_status_rejected()
+
+    print("すべてのテストに成功しました")
+
+#=======================================================================
+
 if __name__ == "__main__":
+    # run_tests()
     main()
