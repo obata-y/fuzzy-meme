@@ -1,5 +1,6 @@
 import random
 import time
+import sys
 
 #=======================================================================
 
@@ -746,5 +747,7 @@ def run_tests():
 #=======================================================================
 
 if __name__ == "__main__":
-    run_tests()
-    # main()
+    if "-test" in sys.argv:
+        run_tests()
+    else:
+        main()
