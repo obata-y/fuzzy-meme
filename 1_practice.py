@@ -41,29 +41,29 @@ class Player:
     def check_debuff(self) -> bool: # Falseでターンが飛ばされる
         can_act = True
 
-        if self.status['paralysis_turn'] > 0:
-            print()
-            time.sleep(1)
-            print(f"{self.name}は痺れている！(残り{self.status['paralysis_turn']-1}ターン)")
-
-            paralysis_damage = 5
-
-            self.take_damage(paralysis_damage)
-            self.status['paralysis_turn'] -= 1
-            print()
-
+        if self.hp <= 0:
             can_act = False
+            return can_act
 
-        if self.status['poison_turn'] > 0:
-            print()
-            time.sleep(1)
-            print(f"{self.name}は毒に侵されている！(残り{self.status['poison_turn']-1}ターン)")
+        for key, value in status_definitions.items():
+            if self.status[key] > 0:
+                print()
+                # time.sleep(1)
 
-            poison_damage = 15
+                if value["blocks_action"]:
+                    can_act = False
 
-            self.take_damage(poison_damage)
-            self.status['poison_turn'] -= 1
-            print()
+                print(f"{self.name}は{value['message']}(残り{self.status[key]-1}ターン)")
+
+                self.take_damage(value['damage'])
+
+                self.status[key] -= 1
+
+                if self.hp <= 0:
+                    can_act = False
+                    return can_act
+
+                print()
 
         return can_act
 
@@ -511,8 +511,20 @@ gobrin_attacks = {
     }
 }
 
-#=======================================================================
+status_definitions = {
+    "paralysis_turn": {
+        "message":"痺れている!",
+        "damage": 5,
+        "blocks_action": True
+    },
+    "poison_turn": {
+        "message":"毒に侵されている!",
+        "damage": 15,
+        "blocks_action": False
+    }
+}
 
+#=======================================================================
 
 def main():
 
@@ -611,15 +623,74 @@ def test_apply_status_rejected():
 
     print("状態異常拒否のテスト成功")
 
+def test_debuff():
+
+    cases = [
+        (100, 0, 0),
+        (100, 0, 3),
+        (100, 1, 0),
+        (100, 1, 3),
+        (5, 1, 3),
+        (0, 3, 3)
+    ]
+
+    case = 0
+
+    for hp, paralysis_turns, poison_turns in cases:
+        player = Player("テスト用", 100, 10)
+        player.hp = hp
+        player.status["paralysis_turn"] = paralysis_turns
+        player.status["poison_turn"] = poison_turns
+
+        success = player.check_debuff()
+
+        if case == 0:
+            print("case", case)
+            assert success is True, "boolが正しくありません"
+            assert player.hp == 100, "hpが正しくありません"
+        if case == 1:
+            print("case", case)
+            assert success is True, "boolが正しくありません"
+            assert player.hp == 85, "hpが正しくありません"
+            assert player.status['poison_turn'] == 2, "毒ターンが正しくありません"
+        if case == 2:
+            print("case", case)
+            assert success is False, "boolが正しくありません"
+            assert player.hp == 95, "hpが正しくありません"
+            assert player.status['paralysis_turn'] == 0, "麻痺ターンが正しくありません"
+        if case == 3:
+            print("case", case)
+            assert success is False, "boolが正しくありません"
+            assert player.hp == 80, "hpが正しくありません"
+            assert player.status['poison_turn'] == 2, "毒ターンが正しくありません"
+            assert player.status['paralysis_turn'] == 0, "麻痺ターンが正しくありません"
+        if case == 4:
+            print("case", case)
+            assert success is False, "boolが正しくありません"
+            assert player.hp == 0, "hpが正しくありません"
+            assert player.status['poison_turn'] == 3, "毒ターンが正しくありません"
+            assert player.status['paralysis_turn'] == 0, "麻痺ターンが正しくありません"
+        if case == 5:
+            print("case", case)
+            assert success is False, "boolが正しくありません"
+            assert player.hp == 0, "hpが正しくありません"
+            assert player.status['poison_turn'] == 3, "毒ターンが正しくありません"
+            assert player.status['paralysis_turn'] == 3, "麻痺ターンが正しくありません"
+
+        case += 1
+
+    print("状態異常反映のテスト成功")
+
 def run_tests():
     test_monster_choose_target()
     test_apply_status()
     test_apply_status_rejected()
+    test_debuff()
 
     print("すべてのテストに成功しました")
 
 #=======================================================================
 
 if __name__ == "__main__":
-    # run_tests()
-    main()
+    run_tests()
+    # main()
