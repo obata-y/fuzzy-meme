@@ -39,7 +39,7 @@ class Player:
 
         print(f"{self.name}に{damage}のダメージ！(残HP{self.hp}/{self.maxhp})")
 
-    def apply_status(self,debuff_key, turn) -> bool:
+    def apply_status(self, debuff_key, turn) -> bool:
         if debuff_key not in self.status:
             return False
         if self.hp <= 0:
@@ -143,10 +143,10 @@ class Hero(Player):
             if self.use_item(item_id):
                 return True
 
-    def choose_action(self, targets) -> bool:
+    def choose_action(self, targets, allies) -> bool:
         while True:
 
-            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:ファイア(MP10) 3:防御 4:ヒール(MP8)]:")
+            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:ファイア(MP10) 3:防御 4:ヒール(MP8) 5:キュア(MP5)]:")
 
             print()
 
@@ -184,9 +184,14 @@ class Hero(Player):
                 return True
 
             elif action == 4:
-                success = self.heal_magic()
+                success, selected_id = self.choose_target(allies)
                 if not success:
                     continue
+
+                success = self.heal_magic(allies[selected_id])
+                if not success:
+                    continue
+
                 return True
 
             else:
@@ -202,15 +207,15 @@ class Hero(Player):
                 print(f"└[{i}: {target.name}(HP{target.hp}/{target.maxhp})]")
             print("└[-1: 戻る]")
 
-            selected_id = input_int("敵を選択してください：")
+            selected_id = input_int("対象を選択してください：")
 
             if selected_id == -1:
                 return False, selected_id
             elif selected_id < 0 or selected_id >= n:
-                print("敵が存在しません")
+                print("対象が存在しません")
                 continue
             elif targets[selected_id].hp <= 0:
-                print("すでに倒しています")
+                print("戦闘不能の対象は選べません")
                 continue
 
             print()
@@ -233,10 +238,14 @@ class Hero(Player):
 
             return True
 
-    def heal_magic(self) -> bool:
+    def heal_magic(self, target) -> bool:
         mpcost = 8
 
-        if self.hp == self.maxhp:
+        if target.hp <= 0:
+            print("戦闘不能キャラです")
+            return False
+
+        if target.hp == target.maxhp:
             print("すでにHPは最大です")
             return False
 
@@ -248,8 +257,9 @@ class Hero(Player):
         else:
             healpt = 50
             # healpt = calculation_heal_hp(healpt)
-            actual_healpt = self.heal_hp(healpt)
-            print(f"{self.name}のヒールが発動！{actual_healpt}の回復！(残HP{self.hp}/{self.maxhp})")
+            actual_healpt = target.heal_hp(healpt)
+            print(f"{self.name}のヒールが発動！\n"
+                  f"{target.name}は{actual_healpt}の回復！(残HP{self.hp}/{self.maxhp})")
 
             return True
 
@@ -443,7 +453,7 @@ def battle(players, monsters):
                 if not can_act:
                     continue
 
-                success = player.choose_action(monsters)
+                success = player.choose_action(monsters, players)
 
                 if not success:
                     continue
@@ -800,30 +810,67 @@ def test_use_mp():
             f"期待MP={expected_mp}、実際のMP={player.mp}"
         )
 
-def test_heal_magic():
-    # 元のhp、元のmp, 期待する戻り値, 期待されるhp、期待されるmp
+def test_heal_magic_self():
+    # 開始HP、開始MP、期待する戻り値、期待HP、期待MP
     cases = [
         (100, 8, True, 150, 0),
         (190, 8, True, 200, 0),
         (200, 8, False, 200, 8),
-        (100, 7, False, 100, 7)
+        (100, 7, False, 100, 7),
+    ]
+
+    for hp, mp, expected_success, expected_hp, expected_mp in cases:
+        player = Hero("自分への回復テスト", 200, 10, 10, Inventory({}))
+        player.hp = hp
+        player.mp = mp
+
+        success = player.heal_magic(player)
+
+        assert success is expected_success, "自分へのヒールの成否が違います"
+        assert player.hp == expected_hp, (
+            f"期待HP={expected_hp}、実際のHP={player.hp}"
+        )
+        assert player.mp == expected_mp, (
+            f"期待MP={expected_mp}、実際のMP={player.mp}"
+        )
+
+def test_heal_magic():
+    # 使用者のhp、使用者のmp, 対象者のhp、対象者のmp, 期待する戻り値, 期待される使用者のhp、期待される使用者のmp、期待される対象者のhp、期待される対象者のmp
+    cases = [
+        (120, 8, 100, 0, True, 120, 0, 150, 0),
+        (200, 8, 200, 0, False, 200, 8, 200, 0),
+        (200, 8, 0, 0, False, 200, 8, 0, 0),
+        (200, 7, 100, 0, False, 200, 7, 100, 0)
     ]
 
 
-    for hp, mp, exp_success, exp_hp, exp_mp in cases:
-        player = Hero("テスト用", 200, 10, 10, Inventory({}))
+    for hp1, mp1, hp2, mp2, exp_success, exp_hp1, exp_mp1, exp_hp2, exp_mp2 in cases:
+        players = [
+            Hero("テスト用1", 200, 10, 10, Inventory({})),
+            Hero("テスト用2", 200, 10, 10, Inventory({}))
+        ]
 
-        player.hp = hp
-        player.mp = mp
-        success = player.heal_magic()
+        players[0].hp = hp1
+        players[0].mp = mp1
+        players[1].hp = hp2
+        players[1].mp = mp2
+
+        success = players[0].heal_magic(players[1])
+
         assert success is exp_success, (
-            f"HP{exp_hp}, MP{exp_mp}；戻り値が正しくありません"
+            f"期待する成否={exp_success}、実際の成否={success}"
         )
-        assert player.hp == exp_hp, (
-            f"期待HP={exp_hp}、実際のHP={player.hp}"
+        assert players[0].hp == exp_hp1, (
+            f"使用者HP：期待={exp_hp1}、実際={players[0].hp}"
         )
-        assert player.mp == exp_mp, (
-            f"期待MP={exp_mp}、実際のMP={player.mp}"
+        assert players[0].mp == exp_mp1, (
+            f"使用者MP：期待={exp_mp1}、実際={players[0].mp}"
+        )
+        assert players[1].hp == exp_hp2, (
+            f"対象HP：期待={exp_hp2}、実際={players[1].hp}"
+        )
+        assert players[1].mp == exp_mp2, (
+            f"対象MP：期待={exp_mp2}、実際={players[1].mp}"
         )
 
 def run_tests():
@@ -833,6 +880,7 @@ def run_tests():
     test_debuff()
     test_defend()
     test_use_mp()
+    test_heal_magic_self()
     test_heal_magic()
 
     print("すべてのテストに成功しました")
