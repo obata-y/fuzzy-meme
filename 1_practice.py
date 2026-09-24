@@ -10,6 +10,7 @@ class Player:
         self.hp = maxhp
         self.maxhp = maxhp
         self.attack_power = attack_power
+        self.is_defending = False
         self.status = {
             "poison_turn": 0,
             "paralysis_turn": 0
@@ -21,7 +22,17 @@ class Player:
         damage = calculation_damage(self.attack_power)
         target.take_damage(damage)
 
+    def defend(self):
+        self.is_defending = True
+        print(f"{self.name}は身構えた！")
+
+    def start_turn(self):
+        self.is_defending = False
+
     def take_damage(self, damage):
+
+        if self.is_defending is True:
+            damage = (damage+1) // 2
 
         self.hp = max(self.hp - damage, 0)
 
@@ -48,7 +59,7 @@ class Player:
         for key, value in status_definitions.items():
             if self.status[key] > 0:
                 print()
-                # time.sleep(1)
+                time.sleep(1)
 
                 if value["blocks_action"]:
                     can_act = False
@@ -126,7 +137,7 @@ class Hero(Player):
     def choose_action(self, targets) -> bool:
         while True:
 
-            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:ファイア(MP10)]:")
+            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:ファイア(MP10) 3:防御]:")
 
             print()
 
@@ -157,6 +168,10 @@ class Hero(Player):
 
                 targets[selected_id].check_down()
 
+                return True
+
+            elif action == 3:
+                self.defend()
                 return True
 
             else:
@@ -357,7 +372,9 @@ def battle(players, monsters):
 
         if turn == "players":
 
-            for i, player in enumerate(players):
+            for player in players:
+
+                player.start_turn()
 
                 print(f"【{player.name}】")
 
@@ -681,11 +698,48 @@ def test_debuff():
 
     print("状態異常反映のテスト成功")
 
+def test_defend():
+
+    for case in range(6):
+        player = Player("テスト用", 100, 10)
+        assert player.is_defending is False, "初期状態で防御しています"
+        print("case", case)
+        if case == 0:
+            player.take_damage(10)
+            assert player.hp == 90, "hpが正しくありません"
+        if case == 1:
+            player.defend()
+            player.take_damage(10)
+            assert player.hp == 95, "hpが正しくありません"
+        if case == 2:
+            player.defend()
+            player.take_damage(5)
+            assert player.hp == 97, "hpが正しくありません"
+        if case == 3:
+            player.defend()
+            player.take_damage(10)
+            assert player.is_defending is True, "被弾で防御が解除されています"
+            player.take_damage(10)
+            assert player.is_defending is True, "被弾で防御が解除されています"
+            assert player.hp == 90, "hpが正しくありません"
+        if case == 4:
+            player.defend()
+            player.start_turn()
+            assert player.is_defending is False, "ターン開始時に防御が解除されていません"
+            player.take_damage(10)
+            assert player.hp == 90, "hpが正しくありません"
+        if case == 5:
+            player.hp = 2
+            player.defend()
+            player.take_damage(10)
+            assert player.hp == 0, "hpが正しくありません"
+
 def run_tests():
     test_monster_choose_target()
     test_apply_status()
     test_apply_status_rejected()
     test_debuff()
+    test_defend()
 
     print("すべてのテストに成功しました")
 
