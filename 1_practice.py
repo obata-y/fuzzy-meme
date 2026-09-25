@@ -50,6 +50,17 @@ class Player:
         self.status[debuff_key] = max(turn, self.status[debuff_key])
         return True
 
+    def clear_status(self, debuff_key) -> bool:
+        if self.hp <= 0:
+            return False
+        if debuff_key not in self.status:
+            return False
+        if self.status[debuff_key] <= 0:
+            return False
+
+        self.status[debuff_key] = 0
+        return True
+
     def check_debuff(self) -> bool: # Falseでターンが飛ばされる
         can_act = True
 
@@ -146,7 +157,7 @@ class Hero(Player):
     def choose_action(self, targets, allies) -> bool:
         while True:
 
-            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:ファイア(MP10) 3:防御 4:ヒール(MP8) 5:キュア(MP5)]:")
+            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:魔法 3:防御")
 
             print()
 
@@ -167,15 +178,9 @@ class Hero(Player):
                 return True
 
             elif action == 2:
-                success, selected_id = self.choose_target(targets)
+                success = self.choose_magic_action(targets, allies)
                 if not success:
                     continue
-
-                success = self.fire_magic(targets[selected_id])
-                if not success:
-                    continue
-
-                targets[selected_id].check_down()
 
                 return True
 
@@ -183,20 +188,57 @@ class Hero(Player):
                 self.defend()
                 return True
 
-            elif action == 4:
-                success, selected_id = self.choose_target(allies)
-                if not success:
-                    continue
-
-                success = self.heal_magic(allies[selected_id])
-                if not success:
-                    continue
-
-                return True
-
             else:
                 print("選択肢から選んでください")
                 continue
+
+    def choose_magic_action(self, targets, allies) -> bool:
+
+        magic_dict = self.get_magic_action()
+
+        while True:
+
+            for id, value in magic_dict.items():
+                print(f"└[{id}: {value['label']}]")
+            print("└[-1: 戻る]")
+
+            selected_id = input_int("魔法を選択してください：") # 魔法を選ぶ
+
+            if selected_id == -1:
+                return False
+            elif selected_id not in magic_dict.keys():
+                print("魔法が存在しません")
+                continue
+
+            else:
+
+                selected_magic = magic_dict[selected_id]
+
+                if self.mp < selected_magic['mpcost']:
+                    print("MPが足りません！")
+                    continue
+
+                if selected_magic["target_side"] == "enemy":
+                    candidates = targets
+                elif selected_magic["target_side"] == "ally":
+                    candidates = allies
+                else:
+                    raise ValueError("魔法の対象設定が不正です")
+
+                success, target_id = self.choose_target(candidates)
+                if not success:
+                    continue
+
+                target = candidates[target_id]
+
+                success = selected_magic["function"](target)
+                if not success:
+                    continue
+
+                if selected_magic["target_side"] == "enemy":
+                    target.check_down()
+
+                return True
 
     def choose_target(self, targets):
         while True:
@@ -204,7 +246,14 @@ class Hero(Player):
             n = len(targets)
 
             for i, target in enumerate(targets):
-                print(f"└[{i}: {target.name}(HP{target.hp}/{target.maxhp})]")
+                is_paralysis = ""
+                is_poison = ""
+                if target.status['paralysis_turn'] > 0:
+                    is_paralysis = f"(麻痺{target.status['paralysis_turn']}ターン)"
+                if target.status['poison_turn'] > 0:
+                    is_poison = f"(毒{target.status['poison_turn']})"
+                print(
+                    f"└[{i}: {target.name}(HP{target.hp}/{target.maxhp})]", is_paralysis, is_poison)
             print("└[-1: 戻る]")
 
             selected_id = input_int("対象を選択してください：")
@@ -221,6 +270,30 @@ class Hero(Player):
             print()
 
             return True, selected_id
+
+    def get_magic_action(self):
+        magic_dict = {
+            2: {
+                "label": "ファイア(MP10)",
+                "target_side": "enemy",
+                "function": self.fire_magic,
+                "mpcost": 10
+            },
+            4: {
+                "label": "ヒール(MP8)",
+                "target_side": "ally",
+                "function": self.heal_magic,
+                "mpcost": 8
+            },
+            5: {
+                "label": "キュア(MP5)",
+                "target_side": "ally",
+                "function": self.cure_magic,
+                "mpcost": 5
+            },
+        }
+
+        return magic_dict
 
     def fire_magic(self, target) -> bool:
         mpcost = 10
@@ -244,7 +317,6 @@ class Hero(Player):
         if target.hp <= 0:
             print("戦闘不能キャラです")
             return False
-
         if target.hp == target.maxhp:
             print("すでにHPは最大です")
             return False
@@ -258,12 +330,35 @@ class Hero(Player):
             healpt = 50
             # healpt = calculation_heal_hp(healpt)
             actual_healpt = target.heal_hp(healpt)
-            print(f"{self.name}のヒールが発動！\n"
-                  f"{target.name}は{actual_healpt}の回復！(残HP{self.hp}/{self.maxhp})")
+            print(
+                f"{self.name}のヒールが発動！\n"
+                f"{target.name}は{actual_healpt}の回復！(残HP{target.hp}/{target.maxhp})"
+            )
 
             return True
 
+    def cure_magic(self, target) -> bool:
+        mpcost = 5
 
+        if target.hp <= 0:
+            print("戦闘不能キャラです")
+            return False
+        if target.status['poison_turn'] <= 0:
+            print("対象は毒にかかっていません")
+            return False
+
+        success = self.use_mp(mpcost)
+
+        if not success:
+            print("MPが足りません！")
+            return False
+        else:
+            target.clear_status('poison_turn')
+            print(
+                f"{self.name}のキュアが発動！\n"
+                f"{target.name}の毒が治癒した！"
+            )
+            return True
 
 
 class Monster(Player):
@@ -873,6 +968,150 @@ def test_heal_magic():
             f"対象MP：期待={exp_mp2}、実際={players[1].mp}"
         )
 
+def test_clear_status():
+    # ケース名、HP、解除するキー、毒、麻痺、期待成否、期待毒、期待麻痺
+    cases = [
+        ("毒の解除", 100, "poison_turn", 3, 0, True, 0, 0),
+        ("麻痺の解除", 100, "paralysis_turn", 0, 1, True, 0, 0),
+        ("麻痺を残して毒を解除", 100, "poison_turn", 3, 1, True, 0, 1),
+        ("毒を残して麻痺を解除", 100, "paralysis_turn", 3, 1, True, 3, 0),
+        ("未登録のキー", 100, "unknown_status", 3, 1, False, 3, 1),
+        ("残り0ターン", 100, "poison_turn", 0, 1, False, 0, 1),
+        ("負の残りターン数", 100, "poison_turn", -1, 1, False, -1, 1),
+        ("戦闘不能", 0, "poison_turn", 3, 1, False, 3, 1),
+    ]
+
+    for (
+        label,
+        hp,
+        key,
+        poison,
+        paralysis,
+        expected_success,
+        expected_poison,
+        expected_paralysis,
+    ) in cases:
+        player = Player("解除テスト用", 100, 10)
+        player.hp = hp
+        player.status["poison_turn"] = poison
+        player.status["paralysis_turn"] = paralysis
+
+        success = player.clear_status(key)
+
+        expected_status = {
+            "poison_turn": expected_poison,
+            "paralysis_turn": expected_paralysis,
+        }
+
+        assert success is expected_success, (
+            f"{label}：期待成否={expected_success}、実際={success}"
+        )
+        assert player.status == expected_status, (
+            f"{label}：期待状態={expected_status}、実際={player.status}"
+        )
+        assert player.hp == hp, (
+            f"{label}：解除処理でHPが変わりました"
+        )
+
+    print("状態異常解除のテスト成功")
+
+def test_cure_magic():
+    # ケース名、使用者MP、対象HP、毒、麻痺、期待成否、期待使用者MP、期待毒
+    cases = [
+        ("毒の治療", 5, 100, 3, 0, True, 0, 0),
+        ("毒ではない", 5, 100, 0, 0, False, 5, 0),
+        ("MP不足", 4, 100, 3, 0, False, 4, 3),
+        ("戦闘不能", 5, 0, 3, 0, False, 5, 3),
+        ("麻痺を残して治療", 5, 100, 3, 1, True, 0, 0),
+        ("麻痺だけでは使えない", 5, 100, 0, 1, False, 5, 0),
+    ]
+
+    for (
+        label,
+        caster_mp,
+        target_hp,
+        poison,
+        paralysis,
+        expected_success,
+        expected_mp,
+        expected_poison,
+    ) in cases:
+        inventory = Inventory({})
+        caster = Hero("使用者", 200, 10, 10, inventory)
+        target = Hero("治療対象", 200, 10, 10, inventory)
+
+        caster.hp = 120
+        caster.mp = caster_mp
+        target.hp = target_hp
+        target.mp = 7
+        target.status["poison_turn"] = poison
+        target.status["paralysis_turn"] = paralysis
+
+        caster_status_before = caster.status.copy()
+
+        success = caster.cure_magic(target)
+
+        expected_status = {
+            "poison_turn": expected_poison,
+            "paralysis_turn": paralysis,
+        }
+
+        assert success is expected_success, (
+            f"{label}：期待成否={expected_success}、実際={success}"
+        )
+        assert caster.mp == expected_mp, (
+            f"{label}：使用者の期待MP={expected_mp}、実際={caster.mp}"
+        )
+        assert target.status == expected_status, (
+            f"{label}：期待状態={expected_status}、実際={target.status}"
+        )
+        assert caster.hp == 120, (
+            f"{label}：使用者のHPが変わりました"
+        )
+        assert target.hp == target_hp, (
+            f"{label}：対象のHPが変わりました"
+        )
+        assert target.mp == 7, (
+            f"{label}：対象のMPが変わりました"
+        )
+        assert caster.status == caster_status_before, (
+            f"{label}：使用者の状態異常が変わりました"
+        )
+
+    print("味方へのキュアのテスト成功")
+
+def test_cure_magic_self():
+    player = Hero("自分への治療テスト", 200, 10, 10, Inventory({}))
+    player.hp = 120
+    player.mp = 10
+    player.status["poison_turn"] = 3
+    player.status["paralysis_turn"] = 1
+
+    success = player.cure_magic(player)
+
+    assert success is True, "自分へのキュアが失敗しました"
+    assert player.mp == 5, (
+        f"MPは1回分の5だけ消費するはずです：実際の残MP={player.mp}"
+    )
+    assert player.hp == 120, "キュアでHPが変わりました"
+    assert player.status == {
+        "poison_turn": 0,
+        "paralysis_turn": 1,
+    }, "毒だけが解除されていません"
+
+    # 治療済みの自分に再使用しても、MPを消費しない
+    success = player.cure_magic(player)
+
+    assert success is False, "毒がないのにキュアが成功しました"
+    assert player.mp == 5, "失敗したのにMPを消費しました"
+    assert player.hp == 120, "失敗したのにHPが変わりました"
+    assert player.status == {
+        "poison_turn": 0,
+        "paralysis_turn": 1,
+    }, "失敗したのに状態異常が変わりました"
+
+    print("自分へのキュアのテスト成功")
+
 def run_tests():
     test_monster_choose_target()
     test_apply_status()
@@ -882,6 +1121,9 @@ def run_tests():
     test_use_mp()
     test_heal_magic_self()
     test_heal_magic()
+    test_clear_status()
+    test_cure_magic()
+    test_cure_magic_self()
 
     print("すべてのテストに成功しました")
 
