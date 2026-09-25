@@ -1,6 +1,7 @@
 import random
 import time
 import sys
+from copy import deepcopy
 
 #=======================================================================
 
@@ -507,6 +508,30 @@ class Inventory:
 
 #=======================================================================
 
+def create_battle_members() -> tuple[list, list]:
+    init_items = deepcopy(items)
+    inventory = Inventory(init_items)
+
+    pl1 = Hero("勇者", 200, 30, 20, inventory, speed=15)
+    pl2 = Hero("戦士", 150, 0, 40, inventory, speed=8)
+
+    mo1 = Monster("スライムA", 50, 10, slime_attacks, speed=10)
+    mo2 = Monster("スライムB", 70, 8, slime_attacks, speed=6)
+    mo3 = Monster("ゴブリンA", 80, 15, gobrin_attacks, speed=18)
+
+    players = [
+        pl1,
+        pl2
+    ]
+
+    monsters = [
+        mo1,
+        mo2,
+        mo3
+    ]
+
+    return players, monsters
+
 def calculation_damage(attack_power) -> int:
 
     fluctuation = 25 #ダメージ揺らぎ％
@@ -649,9 +674,8 @@ def battle(players, monsters):
 
                 character.act(target)
 
-                time.sleep(1)
-
                 if target.hp <= 0:
+                    time.sleep(1)
                     print()
                     print(f"<{target.name}は倒れてしまった！>")
 
@@ -742,18 +766,7 @@ def main():
 
     time.sleep(1)
 
-    inventory = Inventory(items)
-
-    players = [
-        Hero("勇者", 200, 30, 20, inventory, speed=15),
-        Hero("戦士", 150, 0, 40, inventory, speed=8)
-    ]
-
-    monsters = [
-        Monster("スライムA", 50, 10, slime_attacks, speed=10),
-        Monster("スライムB", 70, 8, slime_attacks, speed=6),
-        Monster("ゴブリンA", 80, 15, gobrin_attacks, speed=18)
-    ]
+    players, monsters = create_battle_members()
 
     win = battle(players, monsters)
 
@@ -1547,6 +1560,185 @@ def test_speed_initialization():
 
     print("素早さの初期化テスト成功")
 
+def test_create_battle_members_initial_state():
+    players, monsters = create_battle_members()
+
+    assert isinstance(players, list), "味方一覧がリストではありません"
+    assert isinstance(monsters, list), "敵一覧がリストではありません"
+    assert len(players) == 2, "味方の人数が違います"
+    assert len(monsters) == 3, "敵の人数が違います"
+
+    # 名前、最大HP、最大MP、攻撃力、素早さ
+    expected_players = [
+        ("勇者", 200, 30, 20, 15),
+        ("戦士", 150, 0, 40, 8),
+    ]
+
+    for player, expected in zip(players, expected_players):
+        assert isinstance(player, Hero), "味方がHeroではありません"
+
+        actual = (
+            player.name,
+            player.maxhp,
+            player.maxmp,
+            player.attack_power,
+            player.speed,
+        )
+
+        assert actual == expected, (
+            f"味方の初期設定：期待={expected}、実際={actual}"
+        )
+        assert player.mp == player.maxmp, (
+            f"{player.name}のMPが最大ではありません"
+        )
+
+    # 名前、最大HP、攻撃力、素早さ、攻撃定義
+    expected_monsters = [
+        ("スライムA", 50, 10, 10, slime_attacks),
+        ("スライムB", 70, 8, 6, slime_attacks),
+        ("ゴブリンA", 80, 15, 18, gobrin_attacks),
+    ]
+
+    for monster, expected in zip(monsters, expected_monsters):
+        assert isinstance(monster, Monster), "敵がMonsterではありません"
+
+        name, maxhp, attack_power, speed, attacks = expected
+
+        actual = (
+            monster.name,
+            monster.maxhp,
+            monster.attack_power,
+            monster.speed,
+        )
+
+        assert actual == (name, maxhp, attack_power, speed), (
+            f"{name}の初期設定が違います：{actual}"
+        )
+        assert monster.attacks is attacks, (
+            f"{name}に正しい攻撃定義が設定されていません"
+        )
+
+    for character in players + monsters:
+        assert character.hp == character.maxhp, (
+            f"{character.name}のHPが最大ではありません"
+        )
+        assert character.is_defending is False, (
+            f"{character.name}が最初から防御しています"
+        )
+        assert character.status == {
+            "poison_turn": 0,
+            "paralysis_turn": 0,
+        }, f"{character.name}が最初から状態異常になっています"
+
+    inventory = players[0].inventory
+
+    assert isinstance(inventory, Inventory)
+    assert inventory.items == items, "所持品が初期定義と一致しません"
+    assert inventory.items[0]["count"] == 3, "回復薬は初期3個です"
+    assert inventory.items[1]["count"] == 1, "上級回復薬は初期1個です"
+
+    order = get_turn_order(players, monsters)
+
+    assert [character.name for character in order] == [
+        "ゴブリンA",
+        "勇者",
+        "スライムA",
+        "戦士",
+        "スライムB",
+    ], "初期メンバーの行動順が違います"
+
+    print("初期メンバー設定のテスト成功")
+
+def test_create_battle_members_independence():
+    items_before = deepcopy(items)
+
+    players1, monsters1 = create_battle_members()
+    players2, monsters2 = create_battle_members()
+
+    inventory1 = players1[0].inventory
+    inventory2 = players2[0].inventory
+
+    # 同じゲーム内では所持品を共有する
+    assert players1[1].inventory is inventory1, (
+        "1組目の勇者と戦士が所持品を共有していません"
+    )
+    assert players2[1].inventory is inventory2, (
+        "2組目の勇者と戦士が所持品を共有していません"
+    )
+
+    # 別のゲームでは一覧・所持品・キャラクターを分離する
+    assert players1 is not players2
+    assert monsters1 is not monsters2
+    assert inventory1 is not inventory2, (
+        "別ゲームで同じInventoryを使っています"
+    )
+
+    for first, second in zip(
+        players1 + monsters1,
+        players2 + monsters2,
+    ):
+        assert first is not second, (
+            f"{first.name}が別ゲームでも同じオブジェクトです"
+        )
+        assert first.status is not second.status, (
+            f"{first.name}の状態異常辞書が共有されています"
+        )
+
+    # 外側の辞書だけでなく、内側の辞書も分離されているか
+    assert inventory1.items is not inventory2.items
+
+    for inventory in (inventory1, inventory2):
+        assert inventory.items is not items
+        assert inventory.items == items_before
+
+        for item_id in items_before:
+            assert inventory.items[item_id] is not items[item_id], (
+                f"アイテム{item_id}の内部データが初期定義と共有されています"
+            )
+
+    for item_id in items_before:
+        assert inventory1.items[item_id] is not inventory2.items[item_id], (
+            f"アイテム{item_id}の内部データがゲーム間で共有されています"
+        )
+
+    # 1組目の勇者だけを負傷させて、回復薬を使う
+    hero1 = players1[0]
+    hero2 = players2[0]
+    hero1.hp = 100
+
+    success = hero1.use_item(0)
+
+    assert success is True, "回復薬を使用できませんでした"
+    assert hero1.hp == 130, "回復薬で30回復していません"
+
+    assert inventory1.items[0]["count"] == 2
+    assert players1[1].inventory.items[0]["count"] == 2, (
+        "勇者の消費が戦士の所持品に反映されていません"
+    )
+    assert inventory2.items[0]["count"] == 3, (
+        "別ゲームの回復薬まで減っています"
+    )
+
+    # 1組目の状態変更が2組目に影響しないか
+    applied = hero1.apply_status("poison_turn", 3)
+    assert applied is True
+    hero1.mp = 0
+    hero1.is_defending = True
+
+    assert hero1.status["poison_turn"] == 3
+    assert hero2.hp == 200, "別ゲームのHPが変わりました"
+    assert hero2.mp == 30, "別ゲームのMPが変わりました"
+    assert hero2.is_defending is False
+    assert hero2.status == {
+        "poison_turn": 0,
+        "paralysis_turn": 0,
+    }, "別ゲームの状態異常が変わりました"
+
+    assert items == items_before, "初期アイテム定義が変更されました"
+    assert items[0]["count"] == 3
+
+    print("ゲームデータの共有・独立テスト成功")
+
 def run_tests():
     test_monster_choose_target()
     test_apply_status()
@@ -1565,8 +1757,10 @@ def run_tests():
     test_battle_already_finished()
     test_get_turn_order()
     test_speed_initialization()
+    test_create_battle_members_initial_state()
+    test_create_battle_members_independence()
 
-    print("すべてのテストに成功しました")
+    print("<< すべてのテストに成功しました >>")
 
 #=======================================================================
 
