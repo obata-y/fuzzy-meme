@@ -25,7 +25,7 @@ class Player:
 
     def defend(self):
         self.is_defending = True
-        print(f"{self.name}は身構えた！")
+        print(f"<{self.name}は身構えた！>")
 
     def start_turn(self):
         self.is_defending = False
@@ -37,7 +37,7 @@ class Player:
 
         self.hp = max(self.hp - damage, 0)
 
-        print(f"{self.name}に{damage}のダメージ！(残HP{self.hp}/{self.maxhp})")
+        print(f"<{self.name}に{damage}のダメージ！(残HP{self.hp}/{self.maxhp})>")
 
     def apply_status(self, debuff_key, turn) -> bool:
         if debuff_key not in self.status:
@@ -77,7 +77,7 @@ class Player:
                 if value["blocks_action"]:
                     can_act = False
 
-                print(f"{self.name}は{value['message']}(残り{self.status[key]-1}ターン)")
+                print(f"<{self.name}は{value['message']}(残り{self.status[key]-1}ターン)>")
 
                 self.take_damage(value['damage'])
 
@@ -103,7 +103,7 @@ class Player:
 
     def check_down(self):
         if self.hp <= 0:
-            print(f"{self.name}は倒れた！")
+            print(f"<{self.name}は倒れた！>")
 
 
 class Hero(Player):
@@ -115,7 +115,15 @@ class Hero(Player):
         self.inventory = inventory
 
     def show_status(self):
-        print(f"{self.name} HP: {self.hp}/{self.maxhp} MP: {self.mp}/{self.maxmp}")
+
+        is_paralysis = ""
+        is_poison = ""
+        if self.status['paralysis_turn'] > 0:
+            is_paralysis = f"(麻痺{self.status['paralysis_turn']}ターン)"
+        if self.status['poison_turn'] > 0:
+            is_poison = f"(毒{self.status['poison_turn']})"
+
+        print(f"{self.name} HP: {self.hp}/{self.maxhp} MP: {self.mp}/{self.maxmp}", is_paralysis, is_poison)
 
     def use_mp(self, mpcost) -> bool:
         if mpcost < 0:
@@ -136,7 +144,7 @@ class Hero(Player):
 
         actual_heal_pt = self.heal_hp(heal_pt)
 
-        print(f"{self.name}は{actual_heal_pt}の回復！(残HP{self.hp}/{self.maxhp})")
+        print(f"<{self.name}は{actual_heal_pt}の回復！(残HP{self.hp}/{self.maxhp})>")
 
         return True
 
@@ -157,7 +165,7 @@ class Hero(Player):
     def choose_action(self, targets, allies) -> bool:
         while True:
 
-            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:魔法 3:防御")
+            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:魔法 3:防御]")
 
             print()
 
@@ -207,7 +215,7 @@ class Hero(Player):
             if selected_id == -1:
                 return False
             elif selected_id not in magic_dict.keys():
-                print("魔法が存在しません")
+                print("<魔法が存在しません>")
                 continue
 
             else:
@@ -215,7 +223,7 @@ class Hero(Player):
                 selected_magic = magic_dict[selected_id]
 
                 if self.mp < selected_magic['mpcost']:
-                    print("MPが足りません！")
+                    print("<MPが足りません！>")
                     continue
 
                 if selected_magic["target_side"] == "enemy":
@@ -223,7 +231,7 @@ class Hero(Player):
                 elif selected_magic["target_side"] == "ally":
                     candidates = allies
                 else:
-                    raise ValueError("魔法の対象設定が不正です")
+                    raise ValueError("<魔法の対象設定が不正です>")
 
                 success, target_id = self.choose_target(candidates)
                 if not success:
@@ -261,10 +269,10 @@ class Hero(Player):
             if selected_id == -1:
                 return False, selected_id
             elif selected_id < 0 or selected_id >= n:
-                print("対象が存在しません")
+                print("<対象が存在しません>")
                 continue
             elif targets[selected_id].hp <= 0:
-                print("戦闘不能の対象は選べません")
+                print("<戦闘不能の対象は選べません>")
                 continue
 
             print()
@@ -278,6 +286,12 @@ class Hero(Player):
                 "target_side": "enemy",
                 "function": self.fire_magic,
                 "mpcost": 10
+            },
+            3: {
+                "label": "ポイズン(MP6)",
+                "target_side": "enemy",
+                "function": self.poison_magic,
+                "mpcost": 6
             },
             4: {
                 "label": "ヒール(MP8)",
@@ -298,33 +312,70 @@ class Hero(Player):
     def fire_magic(self, target) -> bool:
         mpcost = 10
 
+        if target.hp <= 0:
+            print("<戦闘不能キャラです>")
+            return False
+
         success = self.use_mp(mpcost)
 
         if not success:
-            print("MPが足りません！")
+            print("<MPが足りません！>")
             return False
+
         else:
-            print(f"{self.name}のファイアが発動！(残MP{self.mp}/{self.maxmp})")
+            print(f"<{self.name}のファイアが発動！(残MP{self.mp}/{self.maxmp})>")
             damage = calculation_damage(self.attack_power)
             damage = round(damage*1.3)
             target.take_damage(damage)
 
             return True
 
+    def poison_magic(self, target) -> bool:
+        mpcost = 6
+
+        if target.hp <= 0:
+            print("<戦闘不能キャラです>")
+            return False
+
+        if not self.use_mp(mpcost):
+            print("<MPが足りません！>")
+            return False
+
+        print(
+            f"<{self.name}のポイズンが発動！"
+            f"(残MP{self.mp}/{self.maxmp})>"
+        )
+
+        damage = calculation_damage(self.attack_power)
+        damage = round(damage * 0.5)
+        target.take_damage(damage)
+
+        # この下の処理は分岐がうまく作られてる
+        if target.hp > 0:
+            status_applied = target.apply_status("poison_turn", 3)
+
+            if status_applied:
+                if "-test" not in sys.argv:
+                    time.sleep(1)
+
+                print(f"<{target.name}は毒にかかった！>")
+
+        return True
+
     def heal_magic(self, target) -> bool:
         mpcost = 8
 
         if target.hp <= 0:
-            print("戦闘不能キャラです")
+            print("<戦闘不能キャラです>")
             return False
         if target.hp == target.maxhp:
-            print("すでにHPは最大です")
+            print("<すでにHPは最大です>")
             return False
 
         success = self.use_mp(mpcost)
 
         if not success:
-            print("MPが足りません！")
+            print("<MPが足りません！>")
             return False
         else:
             healpt = 50
@@ -341,22 +392,22 @@ class Hero(Player):
         mpcost = 5
 
         if target.hp <= 0:
-            print("戦闘不能キャラです")
+            print("<戦闘不能キャラです>")
             return False
         if target.status['poison_turn'] <= 0:
-            print("対象は毒にかかっていません")
+            print("<対象は毒にかかっていません>")
             return False
 
         success = self.use_mp(mpcost)
 
         if not success:
-            print("MPが足りません！")
+            print("<MPが足りません！>")
             return False
         else:
             target.clear_status('poison_turn')
             print(
-                f"{self.name}のキュアが発動！\n"
-                f"{target.name}の毒が治癒した！"
+                f"<{self.name}のキュアが発動！>\n"
+                f"<{target.name}の毒が治癒した！>"
             )
             return True
 
@@ -371,14 +422,14 @@ class Monster(Player):
         print(f"{self.name} HP: {self.hp}/{self.maxhp}")
 
     def special_attack(self, target):
-        print(f"{self.name}の体当たり！")
+        print(f"<{self.name}の体当たり！>")
 
         damage = calculation_damage(self.attack_power)
         damage = round(damage * 1.1)
         target.take_damage(damage)
 
     def poison_attack(self, target):
-        print(f"{self.name}の毒液！")
+        print(f"<{self.name}の毒液！>")
 
         damage = calculation_damage(self.attack_power)
         damage = round(damage * 0.7)
@@ -388,7 +439,7 @@ class Monster(Player):
             success = target.apply_status("poison_turn", 3)
             if success:
                 time.sleep(1)
-                print(f"{target.name}は毒にかかった！")
+                print(f"<{target.name}は毒にかかった！>")
 
     def paralysis_attack(self, target):
         print(f"{self.name}の電撃！")
@@ -401,7 +452,7 @@ class Monster(Player):
             success = target.apply_status("paralysis_turn", 1)
             if success:
                 time.sleep(1)
-                print(f"{target.name}は麻痺にかかった！")
+                print(f"<{target.name}は麻痺にかかった！>")
 
     def choose_attack(self):
 
@@ -442,14 +493,14 @@ class Inventory:
 
     def use(self, item_id):
         if item_id not in self.items.keys():
-            print("アイテムが存在しません")
+            print("<アイテムが存在しません>")
             return None
         elif self.items[item_id]['count'] <= 0:
-            print("アイテムが存在しません")
+            print("<アイテムが存在しません>")
             return None
         else:
             self.items[item_id]['count'] -= 1
-            print(f"{self.items[item_id]['name']}を使用した！(残り{self.items[item_id]['count']}個)")
+            print(f"<{self.items[item_id]['name']}を使用した！(残り{self.items[item_id]['count']}個)>")
             return self.items[item_id]["heal"]
 
 
@@ -465,7 +516,7 @@ def calculation_damage(attack_power) -> int:
 
     if random.random() < p_critical/100:
         damage = 2*damage
-        print("クリティカル！")
+        print("<クリティカル！>")
 
     return damage
 
@@ -502,10 +553,10 @@ def input_int(message="数字を入力してください："):
 def battle(players, monsters):
 
     print(
-        "======================\n"
+        "==============================================\n"
         "Battle!!\n"
         f"{', '.join(player.name for player in players)} vs {', '.join(monster.name for monster in monsters)}\n"
-        "======================"
+        "=============================================="
     )
     print()
 
@@ -524,10 +575,10 @@ def battle(players, monsters):
 
                 player.start_turn()
 
-                print(f"【{player.name}】")
+                print(f"【{player.name}のターン】")
 
                 if player.hp == 0:
-                    print(f"{player.name}は倒れている！")
+                    print(f"<{player.name}は倒れている！>")
                     continue
 
                 player.show_status()
@@ -535,12 +586,12 @@ def battle(players, monsters):
                 can_act = player.check_debuff()
 
                 if player.hp <= 0:
-                    print(f"{player.name}は倒れてしまった！")
+                    print(f"<{player.name}は倒れてしまった！>")
 
                     pl_wipedout = check_wipedout(players)
 
                     if pl_wipedout:
-                        print(f"{', '.join(player.name for player in players)}は全滅した")
+                        print(f"<{', '.join(player.name for player in players)}は全滅した>")
                         break
 
                     continue
@@ -558,7 +609,7 @@ def battle(players, monsters):
                 if mo_wipedout:
                     print()
                     time.sleep(1)
-                    print(f"{', '.join(monster.name for monster in monsters)}は全滅した")
+                    print(f"<{', '.join(monster.name for monster in monsters)}は全滅した>")
                     break
 
                 time.sleep(1)
@@ -583,17 +634,38 @@ def battle(players, monsters):
 
             for monster in monsters:
 
+                monster.start_turn()
+
+                print(f"【{monster.name}のターン】")
+
                 if monster.hp <= 0:
                     continue
 
                 monster.show_status()
+
+                can_act = monster.check_debuff()
+
+                if monster.hp <= 0:
+                    print(f"<{monster.name}は倒れてしまった！>")
+                    print()
+
+                    mo_wipedout = check_wipedout(monsters)
+
+                    if mo_wipedout:
+                        print(f"<{', '.join(monster.name for monster in monsters)}は全滅した>")
+                        break
+
+                    continue
+
+                if not can_act:
+                    continue
 
                 target = monster.choose_target(players)
 
                 if target is None:
                     time.sleep(1)
                     pl_wipedout = True
-                    print(f"{', '.join(player.name for player in players)}は全滅した")
+                    print(f"<{', '.join(player.name for player in players)}は全滅した>")
                     break
 
                 monster.act(target)
@@ -602,14 +674,14 @@ def battle(players, monsters):
 
                 if target.hp <= 0:
                     print()
-                    print(f"{target.name}は倒れてしまった！")
+                    print(f"<{target.name}は倒れてしまった！>")
 
                 pl_wipedout = check_wipedout(players)
 
                 if pl_wipedout:
                     print()
                     time.sleep(1)
-                    print(f"{', '.join(player.name for player in players)}は全滅した")
+                    print(f"<{', '.join(player.name for player in players)}は全滅した>")
                     break
 
                 print()
@@ -618,6 +690,12 @@ def battle(players, monsters):
                 print()
                 time.sleep(1)
                 print(f"<< {', '.join(monster.name for monster in monsters)}の勝利 >>")
+                break
+
+            if mo_wipedout:
+                print()
+                time.sleep(1)
+                print(f"<< {', '.join(player.name for player in players)}の勝利 >>")
                 break
 
             turn = "players"
@@ -694,9 +772,9 @@ status_definitions = {
 def main():
 
     print(
-        "======================\n"
-        "RPGゲーム\n"
-        "======================\n"
+        "============\n"
+        "| RPGゲーム|\n"
+        "============\n"
     )
 
     time.sleep(1)
@@ -1112,6 +1190,121 @@ def test_cure_magic_self():
 
     print("自分へのキュアのテスト成功")
 
+def test_poison_magic():
+    from unittest.mock import patch
+
+    # ケース名、使用者MP、対象HP、毒、期待成否、期待MP、期待HP、期待毒
+    cases = [
+        ("生存する対象への使用", 6, 50, 0, True, 0, 40, 3),
+        ("MP不足", 5, 50, 0, False, 5, 50, 0),
+        ("戦闘不能の対象", 6, 0, 2, False, 6, 0, 2),
+        ("毒の延長", 6, 50, 1, True, 0, 40, 3),
+        ("長い毒を短縮しない", 6, 50, 5, True, 0, 40, 5),
+        ("直接ダメージで倒す", 6, 10, 0, True, 0, 0, 0),
+        ("ちょうどHP0になる", 6, 10, 0, True, 0, 0, 0),
+        ("MPに余裕がある", 10, 50, 0, True, 4, 40, 3),
+    ]
+
+    module = sys.modules[__name__]
+
+    with patch.object(
+        module,
+        "calculation_damage",
+        return_value=20,
+    ) as damage_mock, patch.object(time, "sleep"):
+        for (
+            label,
+            mp,
+            hp,
+            poison,
+            expected_success,
+            expected_mp,
+            expected_hp,
+            expected_poison,
+        ) in cases:
+            caster = Hero("使用者", 200, 10, 20, Inventory({}))
+            caster.hp = 120
+            caster.mp = mp
+            caster_status_before = caster.status.copy()
+
+            target = Monster("対象", 50, 10, {})
+            target.hp = hp
+            target.status["poison_turn"] = poison
+            target.status["paralysis_turn"] = 1
+
+            damage_mock.reset_mock()
+
+            success = caster.poison_magic(target)
+
+            assert success is expected_success, (
+                f"{label}：期待成否={expected_success}、実際={success}"
+            )
+            assert caster.mp == expected_mp, (
+                f"{label}：期待MP={expected_mp}、実際={caster.mp}"
+            )
+            assert target.hp == expected_hp, (
+                f"{label}：期待HP={expected_hp}、実際={target.hp}"
+            )
+            assert target.status == {
+                "poison_turn": expected_poison,
+                "paralysis_turn": 1,
+            }, f"{label}：対象の状態異常が期待と異なります"
+
+            assert caster.hp == 120, (
+                f"{label}：使用者のHPが変わりました"
+            )
+            assert caster.status == caster_status_before, (
+                f"{label}：使用者の状態異常が変わりました"
+            )
+
+            if expected_success:
+                damage_mock.assert_called_once_with(caster.attack_power)
+            else:
+                damage_mock.assert_not_called()
+
+    print("直接ダメージ付きポイズンのテスト成功")
+
+def test_monster_poison_turn():
+    from unittest.mock import patch
+
+    # ケース名、開始HP、期待HP、期待する行動可否
+    cases = [
+        ("毒ダメージ後も生存", 50, 35, True),
+        ("毒ダメージで戦闘不能", 15, 0, False),
+        ("残HPより大きい毒ダメージ", 10, 0, False),
+    ]
+
+    with patch.object(time, "sleep"):
+        for label, hp, expected_hp, expected_can_act in cases:
+            monster = Monster("毒ダメージ確認用", 50, 10, {})
+            monster.hp = hp
+
+            applied = monster.apply_status("poison_turn", 3)
+            assert applied is True, f"{label}：準備中の毒付与に失敗しました"
+
+            # ターン開始時に防御が解除されることも確認する
+            monster.defend()
+            monster.start_turn()
+
+            assert monster.is_defending is False, (
+                f"{label}：ターン開始時に防御が解除されていません"
+            )
+
+            can_act = monster.check_debuff()
+
+            assert can_act is expected_can_act, (
+                f"{label}：期待行動可否={expected_can_act}、実際={can_act}"
+            )
+            assert monster.hp == expected_hp, (
+                f"{label}：期待HP={expected_hp}、実際={monster.hp}"
+            )
+            assert monster.status == {
+                "poison_turn": 2,
+                "paralysis_turn": 0,
+            }, f"{label}：状態異常の残りターン数が正しくありません"
+
+    print("モンスターの毒ターン処理テスト成功")
+
 def run_tests():
     test_monster_choose_target()
     test_apply_status()
@@ -1124,6 +1317,8 @@ def run_tests():
     test_clear_status()
     test_cure_magic()
     test_cure_magic_self()
+    test_poison_magic()
+    test_monster_poison_turn()
 
     print("すべてのテストに成功しました")
 
