@@ -6,11 +6,12 @@ import sys
 
 class Player:
 
-    def __init__(self,name,maxhp,attack_power):
+    def __init__(self, name, maxhp, attack_power, speed=10):
         self.name = name
         self.hp = maxhp
         self.maxhp = maxhp
         self.attack_power = attack_power
+        self.speed = speed
         self.is_defending = False
         self.status = {
             "poison_turn": 0,
@@ -107,8 +108,8 @@ class Player:
 
 class Hero(Player):
 
-    def __init__(self, name, maxhp, maxmp, attack_power, inventory):
-        super().__init__(name, maxhp, attack_power)
+    def __init__(self, name, maxhp, maxmp, attack_power, inventory, speed=10):
+        super().__init__(name, maxhp, attack_power, speed)
         self.mp = maxmp
         self.maxmp = maxmp
         self.inventory = inventory
@@ -413,8 +414,8 @@ class Hero(Player):
 
 class Monster(Player):
 
-    def __init__(self, name, maxhp, attack_power, attacks):
-        super().__init__(name, maxhp, attack_power)
+    def __init__(self, name, maxhp, attack_power, attacks, speed=10):
+        super().__init__(name, maxhp, attack_power, speed)
         self.attacks = attacks
 
     def show_status(self):
@@ -483,6 +484,7 @@ class Monster(Player):
             )
 
 class Inventory:
+
     def __init__(self, items):
         self.items= items
 
@@ -556,7 +558,7 @@ def show_battle_result(win:str, players, monsters):
     elif win == "draw":
         print("引き分け！")
 
-def input_int(message="数字を入力してください："):
+def input_int(message="数字を入力してください：") -> int:
     while True:
         try:
             number = int(input(message))
@@ -565,6 +567,19 @@ def input_int(message="数字を入力してください："):
             print("数字を入力してください!")
             continue
     return number
+
+def get_turn_order(players, monsters):
+    living_characters = [
+        character
+        for character in players + monsters
+        if character.hp > 0
+    ]
+
+    return sorted(
+        living_characters,
+        key=lambda character: character.speed,
+        reverse=True,
+    )
 
 #=======================================================================
 
@@ -580,89 +595,59 @@ def battle(players, monsters):
 
     time.sleep(1)
 
-    turn ="players"
-
     win = get_battle_result(players, monsters)
     if win is not None:
         show_battle_result(win, players, monsters)
         return win
 
+    nround = 1
+
     while True:
 
-        if turn == "players":
+        print(f"ROUND{nround}")
+        nround += 1
 
-            for player in players:
+        order = get_turn_order(players, monsters)
+        print(f"[ {' -> '.join(character.name for character in order)} ]")
+        time.sleep(1)
+        print()
 
-                player.start_turn()
+        for character in order:
 
-                print(f"【{player.name}のターン】")
+            character.start_turn()
 
-                if player.hp == 0:
-                    print(f"<{player.name}は倒れている！>")
-                    continue
+            print(f"【{character.name}のターン】")
 
-                player.show_status()
+            if character.hp == 0:
+                print(f"<{character.name}は倒れている！>")
+                continue
 
-                can_act = player.check_debuff()
+            character.show_status()
 
-                if player.hp <= 0:
-                    print(f"<{player.name}は倒れてしまった！>")
+            can_act = character.check_debuff()
 
-                win = get_battle_result(players, monsters)
-                if win is not None:
-                    show_battle_result(win, players, monsters)
-                    return win
+            if character.hp <= 0:
+                print(f"<{character.name}は倒れてしまった！>")
 
-                if not can_act:
-                    continue
+            win = get_battle_result(players, monsters)
+            if win is not None:
+                show_battle_result(win, players, monsters)
+                return win
 
-                success = player.choose_action(monsters, players)
+            if not can_act:
+                continue
+
+            if character in players:
+
+                success = character.choose_action(monsters, players)
 
                 if not success:
                     continue
 
-                win = get_battle_result(players, monsters)
-                if win is not None:
-                    show_battle_result(win, players, monsters)
-                    return win
+            elif character in monsters:
+                target = character.choose_target(players)
 
-                time.sleep(1)
-                print()
-
-            turn = "monsters"
-
-        if turn == "monsters":
-
-            for monster in monsters:
-
-                monster.start_turn()
-
-                if monster.hp <= 0:
-                    continue
-
-                print(f"【{monster.name}のターン】")
-
-                monster.show_status()
-
-                can_act = monster.check_debuff()
-
-                if monster.hp <= 0:
-                    print(f"<{monster.name}は倒れてしまった！>")
-                    print()
-
-                    win = get_battle_result(players, monsters)
-                    if win is not None:
-                        show_battle_result(win, players, monsters)
-                        return win
-
-                    continue
-
-                if not can_act:
-                    continue
-
-                target = monster.choose_target(players)
-
-                monster.act(target)
+                character.act(target)
 
                 time.sleep(1)
 
@@ -670,14 +655,13 @@ def battle(players, monsters):
                     print()
                     print(f"<{target.name}は倒れてしまった！>")
 
-                win = get_battle_result(players, monsters)
-                if win is not None:
-                    show_battle_result(win, players, monsters)
-                    return win
+            win = get_battle_result(players, monsters)
+            if win is not None:
+                show_battle_result(win, players, monsters)
+                return win
 
-                print()
-
-            turn = "players"
+            time.sleep(1)
+            print()
 
 #=======================================================================
 
@@ -761,14 +745,14 @@ def main():
     inventory = Inventory(items)
 
     players = [
-        Hero("勇者", 200, 30, 20, inventory),
-        Hero("戦士", 150, 0, 40, inventory)
+        Hero("勇者", 200, 30, 20, inventory, speed=15),
+        Hero("戦士", 150, 0, 40, inventory, speed=8)
     ]
 
     monsters = [
-        Monster("スライムA", 50, 10, slime_attacks),
-        Monster("スライムB", 70, 8, slime_attacks),
-        Monster("ゴブリンA", 80, 15, gobrin_attacks)
+        Monster("スライムA", 50, 10, slime_attacks, speed=10),
+        Monster("スライムB", 70, 8, slime_attacks, speed=6),
+        Monster("ゴブリンA", 80, 15, gobrin_attacks, speed=18)
     ]
 
     win = battle(players, monsters)
@@ -1364,6 +1348,205 @@ def test_battle_already_finished():
 
     print("開始時に決着している戦闘のテスト成功")
 
+def test_get_turn_order():
+    # 各キャラクターの設定は「名前、素早さ、現在HP」
+    cases = [
+        (
+            "敵味方が混在して素早さ順になる",
+            [
+                ("勇者", 15, 100),
+                ("戦士", 8, 100),
+            ],
+            [
+                ("スライムA", 10, 50),
+                ("スライムB", 6, 50),
+                ("ゴブリンA", 18, 50),
+            ],
+            ["ゴブリンA", "勇者", "スライムA", "戦士", "スライムB"],
+        ),
+        (
+            "同速なら元の順序を維持する",
+            [
+                ("味方A", 10, 100),
+                ("味方B", 10, 100),
+            ],
+            [
+                ("敵A", 10, 50),
+                ("敵B", 10, 50),
+            ],
+            ["味方A", "味方B", "敵A", "敵B"],
+        ),
+        (
+            "戦闘不能者を除外する",
+            [
+                ("倒れた味方", 100, 0),
+                ("生存味方", 10, 100),
+            ],
+            [
+                ("倒れた敵", 200, 0),
+                ("生存敵", 20, 50),
+            ],
+            ["生存敵", "生存味方"],
+        ),
+        (
+            "両陣営とも空",
+            [],
+            [],
+            [],
+        ),
+        (
+            "敵一覧が空",
+            [
+                ("遅い味方", 5, 100),
+                ("速い味方", 15, 100),
+            ],
+            [],
+            ["速い味方", "遅い味方"],
+        ),
+        (
+            "味方一覧が空",
+            [],
+            [
+                ("遅い敵", 5, 50),
+                ("速い敵", 15, 50),
+            ],
+            ["速い敵", "遅い敵"],
+        ),
+        (
+            "全員が戦闘不能",
+            [("倒れた味方", 10, 0)],
+            [("倒れた敵", 20, 0)],
+            [],
+        ),
+    ]
+
+    for label, player_specs, monster_specs, expected_names in cases:
+        inventory = Inventory({})
+        players = []
+        monsters = []
+
+        for name, speed, hp in player_specs:
+            player = Hero(
+                name, 100, 10, 10, inventory, speed=speed
+            )
+            player.hp = hp
+            players.append(player)
+
+        for name, speed, hp in monster_specs:
+            monster = Monster(
+                name, 100, 10, {}, speed=speed
+            )
+            monster.hp = hp
+            monsters.append(monster)
+
+        players_before = players.copy()
+        monsters_before = monsters.copy()
+        characters = players + monsters
+
+        # 名前は各ケース内で重複しない前提
+        originals = {
+            character.name: character
+            for character in characters
+        }
+
+        # 変更されてはいけない状態を保存する
+        states_before = [
+            (
+                character,
+                character.hp,
+                character.speed,
+                character.is_defending,
+                character.status.copy(),
+            )
+            for character in characters
+        ]
+
+        order = get_turn_order(players, monsters)
+
+        assert isinstance(order, list), (
+            f"{label}：戻り値がリストではありません"
+        )
+
+        actual_names = [character.name for character in order]
+
+        assert actual_names == expected_names, (
+            f"{label}：\n"
+            f"期待する順序={expected_names}\n"
+            f"実際の順序={actual_names}"
+        )
+
+        # キャラクターをコピーせず、元のオブジェクトを返しているか
+        for character, expected_name in zip(order, expected_names):
+            assert character is originals[expected_name], (
+                f"{label}：{expected_name}が元のオブジェクトではありません"
+            )
+
+        # 元の陣営リストの要素・順序が維持されているか
+        assert len(players) == len(players_before), (
+            f"{label}：プレイヤー一覧の長さが変わりました"
+        )
+        assert all(
+            current is original
+            for current, original in zip(players, players_before)
+        ), f"{label}：プレイヤー一覧の要素・順序が変わりました"
+
+        assert len(monsters) == len(monsters_before), (
+            f"{label}：モンスター一覧の長さが変わりました"
+        )
+        assert all(
+            current is original
+            for current, original in zip(monsters, monsters_before)
+        ), f"{label}：モンスター一覧の要素・順序が変わりました"
+
+        for character, hp, speed, defending, status in states_before:
+            assert character.hp == hp, (
+                f"{label}：{character.name}のHPが変わりました"
+            )
+            assert character.speed == speed, (
+                f"{label}：{character.name}の素早さが変わりました"
+            )
+            assert character.is_defending is defending, (
+                f"{label}：{character.name}の防御状態が変わりました"
+            )
+            assert character.status == status, (
+                f"{label}：{character.name}の状態異常が変わりました"
+            )
+
+    print("行動順のテスト成功")
+
+def test_speed_initialization():
+    inventory = Inventory({})
+
+    # 既存の呼び出し方でも、素早さ10として作成できる
+    default_characters = [
+        Player("基本キャラ", 100, 10),
+        Hero("勇者", 100, 10, 10, inventory),
+        Monster("敵", 100, 10, {}),
+    ]
+
+    for character in default_characters:
+        assert character.speed == 10, (
+            f"{character.name}：素早さの初期値が10ではありません"
+        )
+
+    # 明示した素早さが、各クラスで正しく保存される
+    custom_characters = [
+        Player("基本キャラ", 100, 10, speed=12),
+        Hero("勇者", 100, 10, 10, inventory, speed=15),
+        Monster("敵", 100, 10, {}, speed=18),
+    ]
+
+    for character, expected_speed in zip(
+        custom_characters,
+        [12, 15, 18],
+    ):
+        assert character.speed == expected_speed, (
+            f"{character.name}："
+            f"期待する素早さ={expected_speed}、実際={character.speed}"
+        )
+
+    print("素早さの初期化テスト成功")
+
 def run_tests():
     test_monster_choose_target()
     test_apply_status()
@@ -1380,6 +1563,8 @@ def run_tests():
     test_monster_poison_turn()
     test_get_battle_result()
     test_battle_already_finished()
+    test_get_turn_order()
+    test_speed_initialization()
 
     print("すべてのテストに成功しました")
 
