@@ -105,7 +105,6 @@ class Player:
         if self.hp <= 0:
             print(f"<{self.name}は倒れた！>")
 
-
 class Hero(Player):
 
     def __init__(self, name, maxhp, maxmp, attack_power, inventory):
@@ -528,15 +527,34 @@ def calculation_damage(attack_power) -> int:
 
 #     return damage
 
-def check_wipedout(group):
-    survive = 0
-    for player in group:
+def get_battle_result(players, monsters):
+    # 勝利したチームを返す
+    pl_alive = False
+    mo_alive = False
+
+    for player in players:
         if player.hp > 0:
-            survive += 1
-    if survive == 0:
-        return True
+            pl_alive = True
+    for monster in monsters:
+        if monster.hp > 0:
+            mo_alive = True
+
+    if pl_alive and mo_alive:
+        return None
+    elif pl_alive and not mo_alive:
+        return "players"
+    elif not pl_alive and mo_alive:
+        return "monsters"
     else:
-        return False
+        return "draw"
+
+def show_battle_result(win:str, players, monsters):
+    if win == "players":
+        print(f"{', '.join(player.name for player in players)}の勝利！")
+    elif win == "monsters":
+        print(f"{', '.join(monster.name for monster in monsters)}の勝利！")
+    elif win == "draw":
+        print("引き分け！")
 
 def input_int(message="数字を入力してください："):
     while True:
@@ -564,8 +582,10 @@ def battle(players, monsters):
 
     turn ="players"
 
-    pl_wipedout = False
-    mo_wipedout = False
+    win = get_battle_result(players, monsters)
+    if win is not None:
+        show_battle_result(win, players, monsters)
+        return win
 
     while True:
 
@@ -588,13 +608,10 @@ def battle(players, monsters):
                 if player.hp <= 0:
                     print(f"<{player.name}は倒れてしまった！>")
 
-                    pl_wipedout = check_wipedout(players)
-
-                    if pl_wipedout:
-                        print(f"<{', '.join(player.name for player in players)}は全滅した>")
-                        break
-
-                    continue
+                win = get_battle_result(players, monsters)
+                if win is not None:
+                    show_battle_result(win, players, monsters)
+                    return win
 
                 if not can_act:
                     continue
@@ -604,29 +621,13 @@ def battle(players, monsters):
                 if not success:
                     continue
 
-                mo_wipedout = check_wipedout(monsters)
-
-                if mo_wipedout:
-                    print()
-                    time.sleep(1)
-                    print(f"<{', '.join(monster.name for monster in monsters)}は全滅した>")
-                    break
+                win = get_battle_result(players, monsters)
+                if win is not None:
+                    show_battle_result(win, players, monsters)
+                    return win
 
                 time.sleep(1)
                 print()
-
-            if pl_wipedout:
-                print()
-                time.sleep(1)
-                print(f"<< {', '.join(monster.name for monster in monsters)}の勝利 >>")
-                break
-
-            if mo_wipedout:
-                print()
-                time.sleep(1)
-                print(f"<< {', '.join(player.name for player in players)}の勝利 >>")
-                break
-
 
             turn = "monsters"
 
@@ -636,10 +637,10 @@ def battle(players, monsters):
 
                 monster.start_turn()
 
-                print(f"【{monster.name}のターン】")
-
                 if monster.hp <= 0:
                     continue
+
+                print(f"【{monster.name}のターン】")
 
                 monster.show_status()
 
@@ -649,11 +650,10 @@ def battle(players, monsters):
                     print(f"<{monster.name}は倒れてしまった！>")
                     print()
 
-                    mo_wipedout = check_wipedout(monsters)
-
-                    if mo_wipedout:
-                        print(f"<{', '.join(monster.name for monster in monsters)}は全滅した>")
-                        break
+                    win = get_battle_result(players, monsters)
+                    if win is not None:
+                        show_battle_result(win, players, monsters)
+                        return win
 
                     continue
 
@@ -661,12 +661,6 @@ def battle(players, monsters):
                     continue
 
                 target = monster.choose_target(players)
-
-                if target is None:
-                    time.sleep(1)
-                    pl_wipedout = True
-                    print(f"<{', '.join(player.name for player in players)}は全滅した>")
-                    break
 
                 monster.act(target)
 
@@ -676,27 +670,12 @@ def battle(players, monsters):
                     print()
                     print(f"<{target.name}は倒れてしまった！>")
 
-                pl_wipedout = check_wipedout(players)
-
-                if pl_wipedout:
-                    print()
-                    time.sleep(1)
-                    print(f"<{', '.join(player.name for player in players)}は全滅した>")
-                    break
+                win = get_battle_result(players, monsters)
+                if win is not None:
+                    show_battle_result(win, players, monsters)
+                    return win
 
                 print()
-
-            if pl_wipedout:
-                print()
-                time.sleep(1)
-                print(f"<< {', '.join(monster.name for monster in monsters)}の勝利 >>")
-                break
-
-            if mo_wipedout:
-                print()
-                time.sleep(1)
-                print(f"<< {', '.join(player.name for player in players)}の勝利 >>")
-                break
 
             turn = "players"
 
@@ -792,7 +771,14 @@ def main():
         Monster("ゴブリンA", 80, 15, gobrin_attacks)
     ]
 
-    battle(players, monsters)
+    win = battle(players, monsters)
+
+    if win == "players":
+        print("次の冒険へ進みます")
+    elif win == "monsters":
+        print("ゲームオーバー")
+    elif win == "draw":
+        print("戦闘は引き分けでした")
 
 #=======================================================================
 
@@ -1305,6 +1291,79 @@ def test_monster_poison_turn():
 
     print("モンスターの毒ターン処理テスト成功")
 
+def test_get_battle_result():
+    # ケース名、プレイヤー側のHP一覧、モンスター側のHP一覧、期待結果
+    cases = [
+        ("両陣営が生存", [100], [100], None),
+        ("プレイヤーだけ生存", [100], [0], "players"),
+        ("モンスターだけ生存", [0], [100], "monsters"),
+        ("両陣営とも戦闘不能", [0], [0], "draw"),
+        ("両陣営とも空", [], [], "draw"),
+        ("敵一覧が空", [100], [], "players"),
+        ("味方一覧が空", [], [100], "monsters"),
+        ("両陣営に戦闘不能者が混在", [0, 100], [100, 0], None),
+        ("敵全員が戦闘不能", [0, 100], [0, 0], "players"),
+        ("味方全員が戦闘不能", [0, 0], [0, 100], "monsters"),
+        ("生存者なしで敵一覧が空", [0], [], "draw"),
+        ("生存者なしで味方一覧が空", [], [0], "draw"),
+    ]
+
+    for label, player_hps, monster_hps, expected_result in cases:
+        players = []
+        for index, hp in enumerate(player_hps):
+            player = Player(f"味方{index}", 100, 10)
+            player.hp = hp
+            players.append(player)
+
+        monsters = []
+        for index, hp in enumerate(monster_hps):
+            monster = Monster(f"敵{index}", 100, 10, {})
+            monster.hp = hp
+            monsters.append(monster)
+
+        # 一覧の変更を確認するため、要素と順序を保存する
+        players_before = players.copy()
+        monsters_before = monsters.copy()
+
+        result = get_battle_result(players, monsters)
+
+        assert result == expected_result, (
+            f"{label}：期待結果={expected_result!r}、実際={result!r}"
+        )
+
+        assert players == players_before, (
+            f"{label}：プレイヤー一覧の内容・順序が変わりました"
+        )
+        assert monsters == monsters_before, (
+            f"{label}：モンスター一覧の内容・順序が変わりました"
+        )
+
+        assert [player.hp for player in players] == player_hps, (
+            f"{label}：判定によってプレイヤーのHPが変わりました"
+        )
+        assert [monster.hp for monster in monsters] == monster_hps, (
+            f"{label}：判定によってモンスターのHPが変わりました"
+        )
+
+    print("勝敗判定のテスト成功")
+
+def test_battle_already_finished():
+    from unittest.mock import patch
+
+    player = Hero("勇者", 100, 10, 10, Inventory({}))
+
+    with patch.object(time, "sleep"), patch(
+        "builtins.input",
+        side_effect=AssertionError("決着済みなのに入力を要求しました"),
+    ):
+        result = battle([player], [])
+
+    assert result == "players", (
+        f"開始時に決着した場合の戻り値が違います：{result!r}"
+    )
+
+    print("開始時に決着している戦闘のテスト成功")
+
 def run_tests():
     test_monster_choose_target()
     test_apply_status()
@@ -1319,6 +1378,8 @@ def run_tests():
     test_cure_magic_self()
     test_poison_magic()
     test_monster_poison_turn()
+    test_get_battle_result()
+    test_battle_already_finished()
 
     print("すべてのテストに成功しました")
 
