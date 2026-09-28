@@ -105,6 +105,7 @@ class Player:
 
     def check_down(self):
         if self.hp <= 0:
+            time.sleep(1)
             print(f"<{self.name}は倒れた！>")
 
 class Hero(Player):
@@ -415,9 +416,13 @@ class Hero(Player):
 
 class Monster(Player):
 
-    def __init__(self, name, maxhp, attack_power, attacks, speed=10):
+    def __init__(self, name, maxhp, attack_power, attacks, speed=10, target_selector=None):
         super().__init__(name, maxhp, attack_power, speed)
         self.attacks = attacks
+        if target_selector is None:
+            self.target_selector = select_random_target
+        else:
+            self.target_selector = target_selector
 
     def show_status(self):
         print(f"{self.name} HP: {self.hp}/{self.maxhp}")
@@ -468,12 +473,12 @@ class Monster(Player):
         return selected_id
 
     def choose_target(self, targets):
-        survival_targets = [target for target in targets if target.hp > 0]
+        living_targets = [target for target in targets if target.hp > 0]
 
-        if not survival_targets:
+        if not living_targets:
             return None
 
-        return random.choice(survival_targets)
+        return self.target_selector(living_targets)
 
     def act(self, target):
 
@@ -482,7 +487,7 @@ class Monster(Player):
         self.attacks[attack_id]["function"](
             self,
             target
-            )
+        )
 
 class Inventory:
 
@@ -507,6 +512,7 @@ class Inventory:
 
 
 #=======================================================================
+# グローバル関数
 
 def create_battle_members() -> tuple[list, list]:
     init_items = deepcopy(items)
@@ -517,7 +523,7 @@ def create_battle_members() -> tuple[list, list]:
 
     mo1 = Monster("スライムA", 50, 10, slime_attacks, speed=10)
     mo2 = Monster("スライムB", 70, 8, slime_attacks, speed=6)
-    mo3 = Monster("ゴブリンA", 80, 15, gobrin_attacks, speed=18)
+    mo3 = Monster("ゴブリンA", 80, 15, gobrin_attacks, speed=18, target_selector=select_lowest_hp_ratio_target)
 
     players = [
         pl1,
@@ -576,6 +582,7 @@ def get_battle_result(players, monsters):
         return "draw"
 
 def show_battle_result(win:str, players, monsters):
+    time.sleep(1)
     if win == "players":
         print(f"{', '.join(player.name for player in players)}の勝利！")
     elif win == "monsters":
@@ -606,7 +613,15 @@ def get_turn_order(players, monsters):
         reverse=True,
     )
 
+def select_random_target(candidates):
+    return random.choice(candidates)
+
+def select_lowest_hp_ratio_target(candidates):
+    lowest_hp_target = min(candidates, key=lambda x: x.hp / x.maxhp)
+    return lowest_hp_target
+
 #=======================================================================
+# 戦闘の進行処理
 
 def battle(players, monsters):
 
@@ -639,45 +654,7 @@ def battle(players, monsters):
 
         for character in order:
 
-            character.start_turn()
-
-            print(f"【{character.name}のターン】")
-
-            if character.hp == 0:
-                print(f"<{character.name}は倒れている！>")
-                continue
-
-            character.show_status()
-
-            can_act = character.check_debuff()
-
-            if character.hp <= 0:
-                print(f"<{character.name}は倒れてしまった！>")
-
-            win = get_battle_result(players, monsters)
-            if win is not None:
-                show_battle_result(win, players, monsters)
-                return win
-
-            if not can_act:
-                continue
-
-            if character in players:
-
-                success = character.choose_action(monsters, players)
-
-                if not success:
-                    continue
-
-            elif character in monsters:
-                target = character.choose_target(players)
-
-                character.act(target)
-
-                if target.hp <= 0:
-                    time.sleep(1)
-                    print()
-                    print(f"<{target.name}は倒れてしまった！>")
+            process_turn(character, players, monsters)
 
             win = get_battle_result(players, monsters)
             if win is not None:
@@ -686,6 +663,42 @@ def battle(players, monsters):
 
             time.sleep(1)
             print()
+
+def process_turn(character, players, monsters):
+    character.start_turn()
+
+    print(f"【{character.name}のターン】")
+
+    if character.hp <= 0:
+        print(f"<{character.name}は倒れている！>")
+        return
+
+    character.show_status()
+
+    can_act = character.check_debuff()
+
+    if character.hp <= 0:
+        character.check_down()
+        return
+
+    if not can_act:
+        return
+
+    if character in players:
+
+        success = character.choose_action(monsters, players)
+
+        if not success:
+            return
+
+    elif character in monsters:
+        target = character.choose_target(players)
+
+        if target is None:
+            return
+
+        character.act(target)
+        target.check_down()
 
 #=======================================================================
 
@@ -770,8 +783,10 @@ def main():
 
     win = battle(players, monsters)
 
+    time.sleep(1)
+
     if win == "players":
-        print("次の冒険へ進みます")
+        print("次の冒険へ進みます...")
     elif win == "monsters":
         print("ゲームオーバー")
     elif win == "draw":
@@ -1739,6 +1754,456 @@ def test_create_battle_members_independence():
 
     print("ゲームデータの共有・独立テスト成功")
 
+def test_process_turn():
+    from unittest.mock import patch
+
+    # ケース名、開始HP、毒、麻痺、防御中、
+    # 期待HP、期待毒、期待麻痺、行動するか
+    cases = [
+        ("通常行動", 50, 0, 0, False, 50, 0, 0, True),
+        ("最初から戦闘不能", 0, 3, 0, True, 0, 3, 0, False),
+        ("毒で戦闘不能", 15, 3, 0, False, 0, 2, 0, False),
+        ("毒でも生存", 50, 3, 0, False, 35, 2, 0, True),
+        ("麻痺で行動不可", 50, 0, 1, False, 45, 0, 0, False),
+        ("防御解除後に毒", 50, 3, 0, True, 35, 2, 0, True),
+        ("毒と麻痺の併発", 50, 3, 1, False, 30, 2, 0, False),
+    ]
+
+    module = sys.modules[__name__]
+
+    for side in ("players", "monsters"):
+        for (
+            label,
+            hp,
+            poison,
+            paralysis,
+            defending,
+            expected_hp,
+            expected_poison,
+            expected_paralysis,
+            should_act,
+        ) in cases:
+            hero = Hero("テスト勇者", 100, 10, 10, Inventory({}))
+            monster = Monster("テスト敵", 100, 10, {})
+
+            players = [hero]
+            monsters = [monster]
+
+            character = hero if side == "players" else monster
+            character.hp = hp
+            character.status["poison_turn"] = poison
+            character.status["paralysis_turn"] = paralysis
+            character.is_defending = defending
+
+            context = f"{side}／{label}"
+
+            with patch.object(time, "sleep"), patch.object(
+                hero,
+                "choose_action",
+                return_value=True,
+            ) as hero_action, patch.object(
+                monster,
+                "act",
+            ) as monster_action, patch.object(
+                monster,
+                "choose_target",
+                wraps=monster.choose_target,
+            ) as choose_target, patch.object(
+                character,
+                "check_debuff",
+                wraps=character.check_debuff,
+            ) as debuff_check, patch.object(
+                module,
+                "get_battle_result",
+                side_effect=AssertionError(
+                    "process_turn内で勝敗判定を呼んでいます"
+                ),
+            ):
+                result = process_turn(character, players, monsters)
+
+                assert result is None, f"{context}：戻り値がNoneではありません"
+                assert character.hp == expected_hp, (
+                    f"{context}：期待HP={expected_hp}、実際={character.hp}"
+                )
+                assert character.status == {
+                    "poison_turn": expected_poison,
+                    "paralysis_turn": expected_paralysis,
+                }, f"{context}：状態異常の残りターン数が違います"
+                assert character.is_defending is False, (
+                    f"{context}：防御が解除されていません"
+                )
+
+                if hp <= 0:
+                    debuff_check.assert_not_called()
+                else:
+                    debuff_check.assert_called_once_with()
+
+                if side == "players":
+                    monster_action.assert_not_called()
+                    choose_target.assert_not_called()
+
+                    if should_act:
+                        hero_action.assert_called_once_with(
+                            monsters, players
+                        )
+                    else:
+                        hero_action.assert_not_called()
+
+                else:
+                    hero_action.assert_not_called()
+
+                    if should_act:
+                        choose_target.assert_called_once_with(players)
+                        monster_action.assert_called_once_with(hero)
+                    else:
+                        choose_target.assert_not_called()
+                        monster_action.assert_not_called()
+
+    print("1人分のターン処理テスト成功")
+
+def test_process_turn_no_target():
+    from unittest.mock import patch
+
+    module = sys.modules[__name__]
+
+    for label in ("味方一覧が空", "味方が全員戦闘不能"):
+        monster = Monster("テスト敵", 100, 10, {})
+        monsters = [monster]
+
+        if label == "味方一覧が空":
+            players = []
+        else:
+            hero = Hero("倒れた勇者", 100, 10, 10, Inventory({}))
+            hero.hp = 0
+            players = [hero]
+
+        with patch.object(time, "sleep"), patch.object(
+            monster,
+            "act",
+        ) as attack_mock, patch.object(
+            monster,
+            "choose_target",
+            wraps=monster.choose_target,
+        ) as target_mock, patch.object(
+            module,
+            "get_battle_result",
+            side_effect=AssertionError(
+                "process_turn内で勝敗判定を呼んでいます"
+            ),
+        ):
+            result = process_turn(monster, players, monsters)
+
+            assert result is None, f"{label}：戻り値が違います"
+            target_mock.assert_called_once_with(players)
+            attack_mock.assert_not_called()
+            assert monster.hp == 100, f"{label}：敵のHPが変わりました"
+
+    print("攻撃対象なしのターン処理テスト成功")
+
+def test_process_turn_monster_attack():
+    from unittest.mock import patch
+
+    for starting_hp, expected_hp in [(50, 30), (20, 0)]:
+        hero = Hero("対象の勇者", 100, 10, 10, Inventory({}))
+        hero.hp = starting_hp
+        monster = Monster("攻撃する敵", 100, 10, {})
+
+        def fixed_attack(target):
+            target.take_damage(20)
+
+        def verify_down_check():
+            assert hero.hp == expected_hp, (
+                "ダメージ処理より先に死亡確認が呼ばれています"
+            )
+
+        with patch.object(time, "sleep"), patch.object(
+            monster,
+            "act",
+            side_effect=fixed_attack,
+        ) as attack_mock, patch.object(
+            hero,
+            "check_down",
+            side_effect=verify_down_check,
+        ) as down_mock:
+            result = process_turn(monster, [hero], [monster])
+
+            assert result is None
+            assert hero.hp == expected_hp
+            attack_mock.assert_called_once_with(hero)
+            down_mock.assert_called_once_with()
+
+    print("敵の攻撃後の死亡確認テスト成功")
+
+def test_battle_ends_after_poison():
+    from unittest.mock import patch
+
+    cases = [
+        ("味方が毒で全滅", "players", "monsters"),
+        ("敵が毒で全滅", "monsters", "players"),
+    ]
+
+    for label, poisoned_side, expected_result in cases:
+        hero = Hero(
+            "勇者", 100, 10, 10, Inventory({}), speed=10
+        )
+        monster = Monster(
+            "敵", 100, 10, {}, speed=10
+        )
+
+        character = hero if poisoned_side == "players" else monster
+        character.speed = 20
+        character.hp = 15
+        character.status["poison_turn"] = 3
+
+        with patch.object(time, "sleep"), patch.object(
+            hero,
+            "choose_action",
+            side_effect=AssertionError(
+                f"{label}：終了するはずなのに味方が行動しました"
+            ),
+        ) as hero_action, patch.object(
+            monster,
+            "act",
+            side_effect=AssertionError(
+                f"{label}：終了するはずなのに敵が行動しました"
+            ),
+        ) as monster_action:
+            result = battle([hero], [monster])
+
+            assert result == expected_result, (
+                f"{label}：期待結果={expected_result}、実際={result}"
+            )
+            assert character.hp == 0
+            assert character.status["poison_turn"] == 2
+
+            hero_action.assert_not_called()
+            monster_action.assert_not_called()
+
+    print("毒による戦闘終了の連動テスト成功")
+
+def test_select_lowest_hp_ratio_target():
+    # ケース名、各対象の「現在HP・最大HP」、選ばれる位置
+    cases = [
+        ("HPの数値ではなく割合で選ぶ", [(80, 200), (70, 150)], 0),
+        ("2人目の割合が低い", [(150, 200), (30, 150)], 1),
+        ("同率なら先頭", [(100, 200), (75, 150)], 0),
+        ("同率で並びを逆にしても先頭", [(75, 150), (100, 200)], 0),
+        ("候補が1人", [(20, 100)], 0),
+        ("全員満タンなら先頭", [(200, 200), (150, 150)], 0),
+    ]
+
+    for label, specs, expected_index in cases:
+        candidates = []
+
+        for index, (hp, maxhp) in enumerate(specs):
+            character = Player(f"対象{index}", maxhp, 10)
+            character.hp = hp
+            candidates.append(character)
+
+        before = candidates.copy()
+        states_before = [
+            deepcopy(character.__dict__)
+            for character in candidates
+        ]
+
+        target = select_lowest_hp_ratio_target(candidates)
+
+        assert target is before[expected_index], (
+            f"{label}：期待した対象が選ばれていません"
+        )
+
+        assert len(candidates) == len(before), (
+            f"{label}：候補の人数が変わりました"
+        )
+        assert all(
+            current is original
+            for current, original in zip(candidates, before)
+        ), f"{label}：候補の内容・順序が変わりました"
+
+        for character, state in zip(before, states_before):
+            assert character.__dict__ == state, (
+                f"{label}：{character.name}の状態が変わりました"
+            )
+
+    print("HP割合による対象選択テスト成功")
+
+def test_select_random_target():
+    from unittest.mock import patch
+
+    first = Player("対象A", 100, 10)
+    second = Player("対象B", 100, 10)
+    candidates = [first, second]
+
+    before = candidates.copy()
+    states_before = [
+        deepcopy(character.__dict__)
+        for character in candidates
+    ]
+
+    with patch.object(
+        random,
+        "choice",
+        return_value=second,
+    ) as choice_mock:
+        target = select_random_target(candidates)
+
+        choice_mock.assert_called_once_with(before)
+        assert target is second, "random.choiceの戻り値を返していません"
+
+    assert len(candidates) == len(before)
+    assert all(
+        current is original
+        for current, original in zip(candidates, before)
+    ), "候補の内容・順序が変わりました"
+
+    for character, state in zip(before, states_before):
+        assert character.__dict__ == state, (
+            f"{character.name}の状態が変わりました"
+        )
+
+    print("ランダム対象選択テスト成功")
+
+def test_monster_target_selector():
+    from unittest.mock import Mock
+
+    # ケース名、候補のHP、選択関数が返す元リスト上の位置
+    cases = [
+        ("戦闘不能者を除外", [0, 80, 0, 50], 3),
+        ("生存者が1人", [0, 80, 0], 1),
+        ("全員生存", [80, 50], 0),
+        ("全員戦闘不能", [0, 0], None),
+        ("候補なし", [], None),
+    ]
+
+    for label, hps, selected_index in cases:
+        targets = []
+
+        for index, hp in enumerate(hps):
+            character = Player(f"対象{index}", 100, 10)
+            character.hp = hp
+            targets.append(character)
+
+        before = targets.copy()
+        states_before = [
+            deepcopy(character.__dict__)
+            for character in targets
+        ]
+
+        expected_candidates = [
+            character for character in before if character.hp > 0
+        ]
+
+        expected_target = (
+            before[selected_index]
+            if selected_index is not None
+            else None
+        )
+
+        selector = Mock(return_value=expected_target)
+
+        monster = Monster(
+            "テスト敵",
+            100,
+            10,
+            {},
+            target_selector=selector,
+        )
+
+        assert monster.target_selector is selector, (
+            f"{label}：渡した選択関数を保存していません"
+        )
+
+        result = monster.choose_target(targets)
+
+        assert result is expected_target, (
+            f"{label}：選択関数の戻り値をそのまま返していません"
+        )
+
+        if expected_candidates:
+            selector.assert_called_once_with(expected_candidates)
+        else:
+            selector.assert_not_called()
+
+        assert len(targets) == len(before), (
+            f"{label}：元の一覧の人数が変わりました"
+        )
+        assert all(
+            current is original
+            for current, original in zip(targets, before)
+        ), f"{label}：元の一覧の内容・順序が変わりました"
+
+        for character, state in zip(before, states_before):
+            assert character.__dict__ == state, (
+                f"{label}：{character.name}の状態が変わりました"
+            )
+
+    print("モンスターと対象選択関数の連動テスト成功")
+
+def test_target_selector_initialization():
+    # 引数を省略した場合
+    default_monster = Monster("既定の敵", 100, 10, {})
+
+    assert default_monster.target_selector is select_random_target, (
+        "省略時にランダム選択が設定されていません"
+    )
+
+    # 明示的にNoneを渡した場合
+    none_monster = Monster(
+        "None指定の敵",
+        100,
+        10,
+        {},
+        target_selector=None,
+    )
+
+    assert none_monster.target_selector is select_random_target, (
+        "None指定時にランダム選択が設定されていません"
+    )
+
+    # 通常ゲームで使用する生成処理も確認する
+    players, monsters = create_battle_members()
+
+    assert len(monsters) == 3
+
+    expected_selectors = [
+        ("スライムA", select_random_target),
+        ("スライムB", select_random_target),
+        ("ゴブリンA", select_lowest_hp_ratio_target),
+    ]
+
+    for monster, (name, selector) in zip(
+        monsters, expected_selectors
+    ):
+        assert monster.name == name
+        assert monster.target_selector is selector, (
+            f"{name}の対象選択関数が違います"
+        )
+
+    hero, warrior = players
+    hero.hp = 80
+    warrior.hp = 70
+
+    goblin = monsters[2]
+
+    assert goblin.choose_target(players) is hero, (
+        "ゴブリンがHP割合の低い勇者を選んでいません"
+    )
+
+    # 勇者が戦闘不能なら、生存している戦士を選ぶ
+    hero.hp = 0
+
+    assert goblin.choose_target(players) is warrior, (
+        "戦闘不能者を除外していません"
+    )
+
+    warrior.hp = 0
+
+    assert goblin.choose_target(players) is None, (
+        "全員戦闘不能なのに対象を返しています"
+    )
+
+    print("対象選択の初期設定テスト成功")
+
 def run_tests():
     test_monster_choose_target()
     test_apply_status()
@@ -1759,6 +2224,14 @@ def run_tests():
     test_speed_initialization()
     test_create_battle_members_initial_state()
     test_create_battle_members_independence()
+    test_process_turn()
+    test_process_turn_no_target()
+    test_process_turn_monster_attack()
+    test_battle_ends_after_poison()
+    test_select_lowest_hp_ratio_target()
+    test_select_random_target()
+    test_monster_target_selector()
+    test_target_selector_initialization()
 
     print("<< すべてのテストに成功しました >>")
 
