@@ -1,11 +1,14 @@
+# File: 1_main.py
 import random
 import time
 from copy import deepcopy
 
-#=======================================================================
+
+# =======================================================================
+# キャラクター
+
 
 class Player:
-
     def __init__(self, name, maxhp, attack_power, speed=10):
         self.name = name
         self.hp = maxhp
@@ -15,7 +18,7 @@ class Player:
         self.is_defending = False
         self.status = {
             "poison_turn": 0,
-            "paralysis_turn": 0
+            "paralysis_turn": 0,
         }
 
     def attack(self, target):
@@ -32,13 +35,15 @@ class Player:
         self.is_defending = False
 
     def take_damage(self, damage):
-
-        if self.is_defending is True:
-            damage = (damage+1) // 2
+        if self.is_defending:
+            damage = (damage + 1) // 2
 
         self.hp = max(self.hp - damage, 0)
 
-        print(f"<{self.name}に{damage}のダメージ！(残HP{self.hp}/{self.maxhp})>")
+        print(
+            f"<{self.name}に{damage}のダメージ！"
+            f"(残HP{self.hp}/{self.maxhp})>"
+        )
 
     def apply_status(self, debuff_key, turn) -> bool:
         if debuff_key not in self.status:
@@ -48,7 +53,10 @@ class Player:
         if turn <= 0:
             return False
 
-        self.status[debuff_key] = max(turn, self.status[debuff_key])
+        self.status[debuff_key] = max(
+            turn,
+            self.status[debuff_key],
+        )
         return True
 
     def clear_status(self, debuff_key) -> bool:
@@ -62,44 +70,43 @@ class Player:
         self.status[debuff_key] = 0
         return True
 
-    def check_debuff(self) -> bool: # Falseでターンが飛ばされる
+    def check_debuff(self) -> bool:
+        # Falseなら行動できない
+        if self.hp <= 0:
+            return False
+
         can_act = True
 
-        if self.hp <= 0:
-            can_act = False
-            return can_act
+        for key, definition in status_definitions.items():
+            if self.status[key] <= 0:
+                continue
 
-        for key, value in status_definitions.items():
-            if self.status[key] > 0:
-                print()
-                time.sleep(1)
+            print()
+            time.sleep(1)
 
-                if value["blocks_action"]:
-                    can_act = False
+            if definition["blocks_action"]:
+                can_act = False
 
-                print(f"<{self.name}は{value['message']}(残り{self.status[key]-1}ターン)>")
+            print(
+                f"<{self.name}は{definition['message']}"
+                f"(残り{self.status[key] - 1}ターン)>"
+            )
 
-                self.take_damage(value['damage'])
+            self.take_damage(definition["damage"])
+            self.status[key] -= 1
 
-                self.status[key] -= 1
+            if self.hp <= 0:
+                return False
 
-                if self.hp <= 0:
-                    can_act = False
-                    return can_act
-
-                print()
+            print()
 
         return can_act
 
     def heal_hp(self, healpt) -> int:
-
         hp_before = self.hp
-
         self.hp = min(self.hp + healpt, self.maxhp)
 
-        actual_heal_pt = self.hp - hp_before
-
-        return actual_heal_pt
+        return self.hp - hp_before
 
     def check_down(self):
         if self.hp <= 0:
@@ -107,28 +114,46 @@ class Player:
             print(f"<{self.name}は倒れた！>")
 
 class Hero(Player):
-
-    def __init__(self, name, maxhp, maxmp, attack_power, inventory, speed=10):
+    def __init__(
+        self,
+        name,
+        maxhp,
+        maxmp,
+        attack_power,
+        inventory,
+        speed=10,
+    ):
         super().__init__(name, maxhp, attack_power, speed)
+
         self.mp = maxmp
         self.maxmp = maxmp
         self.inventory = inventory
 
     def show_status(self):
+        paralysis_text = ""
+        poison_text = ""
 
-        is_paralysis = ""
-        is_poison = ""
-        if self.status['paralysis_turn'] > 0:
-            is_paralysis = f"(麻痺{self.status['paralysis_turn']}ターン)"
-        if self.status['poison_turn'] > 0:
-            is_poison = f"(毒{self.status['poison_turn']})"
+        if self.status["paralysis_turn"] > 0:
+            paralysis_text = (
+                f"(麻痺{self.status['paralysis_turn']}ターン)"
+            )
 
-        print(f"{self.name} HP: {self.hp}/{self.maxhp} MP: {self.mp}/{self.maxmp}", is_paralysis, is_poison)
+        if self.status["poison_turn"] > 0:
+            poison_text = (
+                f"(毒{self.status['poison_turn']}ターン)"
+            )
+
+        print(
+            f"{self.name} "
+            f"HP: {self.hp}/{self.maxhp} "
+            f"MP: {self.mp}/{self.maxmp}",
+            paralysis_text,
+            poison_text,
+        )
 
     def use_mp(self, mpcost) -> bool:
         if mpcost < 0:
             return False
-
         if self.mp < mpcost:
             return False
 
@@ -136,25 +161,27 @@ class Hero(Player):
         return True
 
     def use_item(self, item_id) -> bool:
-
         heal_pt = self.inventory.use(item_id)
 
-        if heal_pt is  None:
+        if heal_pt is None:
             return False
 
         actual_heal_pt = self.heal_hp(heal_pt)
 
-        print(f"<{self.name}は{actual_heal_pt}の回復！(残HP{self.hp}/{self.maxhp})>")
-
+        print(
+            f"<{self.name}は{actual_heal_pt}の回復！"
+            f"(残HP{self.hp}/{self.maxhp})>"
+        )
         return True
 
     def choose_item(self) -> bool:
         while True:
-
             self.inventory.show_items()
             print("└[-1: 戻る]")
 
-            item_id = input_int("使用するアイテムを選んでください：")
+            item_id = input_int(
+                "使用するアイテムを選んでください："
+            )
 
             if item_id == -1:
                 return False
@@ -164,30 +191,33 @@ class Hero(Player):
 
     def choose_action(self, targets, allies) -> bool:
         while True:
-
-            action = input_int("行動を決めてください\n[0:攻撃 1:アイテム 2:魔法 3:防御]")
+            action = input_int(
+                "行動を決めてください\n"
+                "[0:攻撃 1:アイテム 2:魔法 3:防御]："
+            )
 
             print()
 
             if action == 0:
                 success, selected_id = self.choose_target(targets)
+
                 if not success:
                     continue
-                self.attack(targets[selected_id])
 
-                targets[selected_id].check_down()
+                target = targets[selected_id]
+                self.attack(target)
+                target.check_down()
 
                 return True
 
             elif action == 1:
-                success = self.choose_item()
-                if not success:
+                if not self.choose_item():
                     continue
+
                 return True
 
             elif action == 2:
-                success = self.choose_magic_action(targets, allies)
-                if not success:
+                if not self.choose_magic_action(targets, allies):
                     continue
 
                 return True
@@ -198,116 +228,122 @@ class Hero(Player):
 
             else:
                 print("選択肢から選んでください")
-                continue
 
     def choose_magic_action(self, targets, allies) -> bool:
-
         magic_dict = self.get_magic_action()
 
         while True:
+            for magic_id, data in magic_dict.items():
+                print(f"└[{magic_id}: {data['label']}]")
 
-            for id, value in magic_dict.items():
-                print(f"└[{id}: {value['label']}]")
             print("└[-1: 戻る]")
 
-            selected_id = input_int("魔法を選択してください：") # 魔法を選ぶ
+            selected_id = input_int("魔法を選択してください：")
 
             if selected_id == -1:
                 return False
-            elif selected_id not in magic_dict.keys():
+
+            if selected_id not in magic_dict:
                 print("<魔法が存在しません>")
                 continue
 
+            selected_magic = magic_dict[selected_id]
+
+            if self.mp < selected_magic["mpcost"]:
+                print("<MPが足りません！>")
+                continue
+
+            if selected_magic["target_side"] == "enemy":
+                candidates = targets
+            elif selected_magic["target_side"] == "ally":
+                candidates = allies
             else:
+                raise ValueError("魔法の対象設定が不正です")
 
-                selected_magic = magic_dict[selected_id]
+            success, target_id = self.choose_target(candidates)
 
-                if self.mp < selected_magic['mpcost']:
-                    print("<MPが足りません！>")
-                    continue
+            if not success:
+                continue
 
-                if selected_magic["target_side"] == "enemy":
-                    candidates = targets
-                elif selected_magic["target_side"] == "ally":
-                    candidates = allies
-                else:
-                    raise ValueError("<魔法の対象設定が不正です>")
+            target = candidates[target_id]
+            success = selected_magic["function"](target)
 
-                success, target_id = self.choose_target(candidates)
-                if not success:
-                    continue
+            if not success:
+                continue
 
-                target = candidates[target_id]
+            if selected_magic["target_side"] == "enemy":
+                target.check_down()
 
-                success = selected_magic["function"](target)
-                if not success:
-                    continue
-
-                if selected_magic["target_side"] == "enemy":
-                    target.check_down()
-
-                return True
+            return True
 
     def choose_target(self, targets):
         while True:
+            for index, target in enumerate(targets):
+                paralysis_text = ""
+                poison_text = ""
 
-            n = len(targets)
+                if target.status["paralysis_turn"] > 0:
+                    paralysis_text = (
+                        f"(麻痺{target.status['paralysis_turn']}ターン)"
+                    )
 
-            for i, target in enumerate(targets):
-                is_paralysis = ""
-                is_poison = ""
-                if target.status['paralysis_turn'] > 0:
-                    is_paralysis = f"(麻痺{target.status['paralysis_turn']}ターン)"
-                if target.status['poison_turn'] > 0:
-                    is_poison = f"(毒{target.status['poison_turn']})"
+                if target.status["poison_turn"] > 0:
+                    poison_text = (
+                        f"(毒{target.status['poison_turn']}ターン)"
+                    )
+
                 print(
-                    f"└[{i}: {target.name}(HP{target.hp}/{target.maxhp})]", is_paralysis, is_poison)
+                    f"└[{index}: {target.name}"
+                    f"(HP{target.hp}/{target.maxhp})]",
+                    paralysis_text,
+                    poison_text,
+                )
+
             print("└[-1: 戻る]")
 
             selected_id = input_int("対象を選択してください：")
 
             if selected_id == -1:
                 return False, selected_id
-            elif selected_id < 0 or selected_id >= n:
+
+            if selected_id < 0 or selected_id >= len(targets):
                 print("<対象が存在しません>")
                 continue
-            elif targets[selected_id].hp <= 0:
+
+            if targets[selected_id].hp <= 0:
                 print("<戦闘不能の対象は選べません>")
                 continue
 
             print()
-
             return True, selected_id
 
     def get_magic_action(self):
-        magic_dict = {
+        return {
             2: {
                 "label": "ファイア(MP10)",
                 "target_side": "enemy",
                 "function": self.fire_magic,
-                "mpcost": 10
+                "mpcost": 10,
             },
             3: {
                 "label": "ポイズン(MP6)",
                 "target_side": "enemy",
                 "function": self.poison_magic,
-                "mpcost": 6
+                "mpcost": 6,
             },
             4: {
                 "label": "ヒール(MP8)",
                 "target_side": "ally",
                 "function": self.heal_magic,
-                "mpcost": 8
+                "mpcost": 8,
             },
             5: {
                 "label": "キュア(MP5)",
                 "target_side": "ally",
                 "function": self.cure_magic,
-                "mpcost": 5
+                "mpcost": 5,
             },
         }
-
-        return magic_dict
 
     def fire_magic(self, target) -> bool:
         mpcost = 10
@@ -316,19 +352,20 @@ class Hero(Player):
             print("<戦闘不能キャラです>")
             return False
 
-        success = self.use_mp(mpcost)
-
-        if not success:
+        if not self.use_mp(mpcost):
             print("<MPが足りません！>")
             return False
 
-        else:
-            print(f"<{self.name}のファイアが発動！(残MP{self.mp}/{self.maxmp})>")
-            damage = calculation_damage(self.attack_power)
-            damage = round(damage*1.3)
-            target.take_damage(damage)
+        print(
+            f"<{self.name}のファイアが発動！"
+            f"(残MP{self.mp}/{self.maxmp})>"
+        )
 
-            return True
+        damage = calculation_damage(self.attack_power)
+        damage = round(damage * 1.3)
+        target.take_damage(damage)
+
+        return True
 
     def poison_magic(self, target) -> bool:
         mpcost = 6
@@ -350,13 +387,11 @@ class Hero(Player):
         damage = round(damage * 0.5)
         target.take_damage(damage)
 
-        # この下の処理は分岐がうまく作られてる
         if target.hp > 0:
-            status_applied = target.apply_status("poison_turn", 3)
+            applied = target.apply_status("poison_turn", 3)
 
-            if status_applied:
+            if applied:
                 time.sleep(1)
-
                 print(f"<{target.name}は毒にかかった！>")
 
         return True
@@ -367,25 +402,23 @@ class Hero(Player):
         if target.hp <= 0:
             print("<戦闘不能キャラです>")
             return False
+
         if target.hp == target.maxhp:
             print("<すでにHPは最大です>")
             return False
 
-        success = self.use_mp(mpcost)
-
-        if not success:
+        if not self.use_mp(mpcost):
             print("<MPが足りません！>")
             return False
-        else:
-            healpt = 50
-            # healpt = calculation_heal_hp(healpt)
-            actual_healpt = target.heal_hp(healpt)
-            print(
-                f"{self.name}のヒールが発動！\n"
-                f"{target.name}は{actual_healpt}の回復！(残HP{target.hp}/{target.maxhp})"
-            )
 
-            return True
+        actual_heal = target.heal_hp(50)
+
+        print(
+            f"{self.name}のヒールが発動！\n"
+            f"{target.name}は{actual_heal}の回復！"
+            f"(残HP{target.hp}/{target.maxhp})"
+        )
+        return True
 
     def cure_magic(self, target) -> bool:
         mpcost = 5
@@ -393,29 +426,37 @@ class Hero(Player):
         if target.hp <= 0:
             print("<戦闘不能キャラです>")
             return False
-        if target.status['poison_turn'] <= 0:
+
+        if target.status["poison_turn"] <= 0:
             print("<対象は毒にかかっていません>")
             return False
 
-        success = self.use_mp(mpcost)
-
-        if not success:
+        if not self.use_mp(mpcost):
             print("<MPが足りません！>")
             return False
-        else:
-            target.clear_status('poison_turn')
-            print(
-                f"<{self.name}のキュアが発動！>\n"
-                f"<{target.name}の毒が治癒した！>"
-            )
-            return True
 
+        target.clear_status("poison_turn")
+
+        print(
+            f"<{self.name}のキュアが発動！>\n"
+            f"<{target.name}の毒が治癒した！>"
+        )
+        return True
 
 class Monster(Player):
-
-    def __init__(self, name, maxhp, attack_power, attacks, speed=10, target_selector=None):
+    def __init__(
+        self,
+        name,
+        maxhp,
+        attack_power,
+        attacks,
+        speed=10,
+        target_selector=None,
+    ):
         super().__init__(name, maxhp, attack_power, speed)
+
         self.attacks = attacks
+
         if target_selector is None:
             self.target_selector = select_random_target
         else:
@@ -439,8 +480,9 @@ class Monster(Player):
         target.take_damage(damage)
 
         if random.random() <= 0.75:
-            success = target.apply_status("poison_turn", 3)
-            if success:
+            applied = target.apply_status("poison_turn", 3)
+
+            if applied:
                 time.sleep(1)
                 print(f"<{target.name}は毒にかかった！>")
 
@@ -452,25 +494,28 @@ class Monster(Player):
         target.take_damage(damage)
 
         if random.random() <= 0.25:
-            success = target.apply_status("paralysis_turn", 1)
-            if success:
+            applied = target.apply_status("paralysis_turn", 1)
+
+            if applied:
                 time.sleep(1)
                 print(f"<{target.name}は麻痺にかかった！>")
 
     def choose_attack(self):
-
         hp_ratio = self.hp / self.maxhp
 
-        selected_id = random.choices(
-            list(self.attacks.keys()), #キー(数字)を返す
-            [data["weight"](hp_ratio) for data in self.attacks.values()], # values()で{"name"...}の部分を取得
-            k=1
+        return random.choices(
+            list(self.attacks.keys()),
+            weights=[
+                data["weight"](hp_ratio)
+                for data in self.attacks.values()
+            ],
+            k=1,
         )[0]
 
-        return selected_id
-
     def choose_target(self, targets):
-        living_targets = [target for target in targets if target.hp > 0]
+        living_targets = [
+            target for target in targets if target.hp > 0
+        ]
 
         if not living_targets:
             return None
@@ -478,124 +523,143 @@ class Monster(Player):
         return self.target_selector(living_targets)
 
     def act(self, target):
-
         attack_id = self.choose_attack()
+        self.attacks[attack_id]["function"](self, target)
 
-        self.attacks[attack_id]["function"](
-            self,
-            target
-        )
+
+# =======================================================================
+# 所持品
+
 
 class Inventory:
-
     def __init__(self, items):
-        self.items= items
+        self.items = items
 
     def show_items(self):
-        for item_id, item_data in self.items.items():
-            print(f"└[{item_id}: {item_data['name']}(+HP{item_data['heal']}) × {item_data['count']}]")
+        for item_id, data in self.items.items():
+            print(
+                f"└[{item_id}: {data['name']}"
+                f"(+HP{data['heal']}) × {data['count']}]"
+            )
 
     def use(self, item_id):
-        if item_id not in self.items.keys():
+        if item_id not in self.items:
             print("<アイテムが存在しません>")
             return None
-        elif self.items[item_id]['count'] <= 0:
+
+        if self.items[item_id]["count"] <= 0:
             print("<アイテムが存在しません>")
             return None
-        else:
-            self.items[item_id]['count'] -= 1
-            print(f"<{self.items[item_id]['name']}を使用した！(残り{self.items[item_id]['count']}個)>")
-            return self.items[item_id]["heal"]
+
+        data = self.items[item_id]
+        data["count"] -= 1
+
+        print(
+            f"<{data['name']}を使用した！"
+            f"(残り{data['count']}個)>"
+        )
+        return data["heal"]
 
 
-#=======================================================================
-# グローバル関数
+# =======================================================================
+# 共通関数
+
 
 def create_battle_members() -> tuple[list, list]:
-    init_items = deepcopy(items)
-    inventory = Inventory(init_items)
-
-    pl1 = Hero("勇者", 200, 30, 20, inventory, speed=15)
-    pl2 = Hero("戦士", 150, 0, 40, inventory, speed=8)
-
-    mo1 = Monster("スライムA", 50, 10, slime_attacks, speed=10)
-    mo2 = Monster("スライムB", 70, 8, slime_attacks, speed=6)
-    mo3 = Monster("ゴブリンA", 80, 15, gobrin_attacks, speed=18, target_selector=select_lowest_hp_ratio_target)
+    inventory = Inventory(deepcopy(items))
 
     players = [
-        pl1,
-        pl2
+        Hero("勇者", 200, 30, 20, inventory, speed=15),
+        Hero("戦士", 150, 0, 40, inventory, speed=8),
     ]
 
     monsters = [
-        mo1,
-        mo2,
-        mo3
+        Monster(
+            "スライムA",
+            50,
+            10,
+            slime_attacks,
+            speed=10,
+        ),
+        Monster(
+            "スライムB",
+            70,
+            8,
+            slime_attacks,
+            speed=6,
+        ),
+        Monster(
+            "ゴブリンA",
+            80,
+            15,
+            gobrin_attacks,
+            speed=18,
+            target_selector=select_lowest_hp_ratio_target,
+        ),
     ]
 
     return players, monsters
 
+
 def calculation_damage(attack_power) -> int:
+    fluctuation = 25
 
-    fluctuation = 25 #ダメージ揺らぎ％
+    damage = round(
+        attack_power
+        * (1 + random.randint(-fluctuation, fluctuation) / 100)
+    )
 
-    damage = round(attack_power*(1 + random.randint(-fluctuation,fluctuation)/100))
+    critical_percent = 20
 
-    p_critical = 20 #クリティカル確率％
-
-    if random.random() < p_critical/100:
-        damage = 2*damage
+    if random.random() < critical_percent / 100:
+        damage *= 2
         print("<クリティカル！>")
 
     return damage
 
-# def calculation_heal_hp(healpt_hp) -> int:
-
-#     fluctuation = 10 #回復揺らぎ％
-
-#     damage = round(healpt_hp*(1 + random.randint(-fluctuation,fluctuation)/100))
-
-#     return damage
 
 def get_battle_result(players, monsters):
-    # 勝利したチームを返す
-    pl_alive = False
-    mo_alive = False
+    player_alive = False
+    monster_alive = False
 
     for player in players:
         if player.hp > 0:
-            pl_alive = True
+            player_alive = True
+
     for monster in monsters:
         if monster.hp > 0:
-            mo_alive = True
+            monster_alive = True
 
-    if pl_alive and mo_alive:
+    if player_alive and monster_alive:
         return None
-    elif pl_alive and not mo_alive:
+    elif player_alive:
         return "players"
-    elif not pl_alive and mo_alive:
+    elif monster_alive:
         return "monsters"
     else:
         return "draw"
 
-def show_battle_result(win:str, players, monsters):
+
+def show_battle_result(win: str, players, monsters):
     time.sleep(1)
+
     if win == "players":
-        print(f"{', '.join(player.name for player in players)}の勝利！")
+        names = ", ".join(player.name for player in players)
+        print(f"{names}の勝利！")
     elif win == "monsters":
-        print(f"{', '.join(monster.name for monster in monsters)}の勝利！")
+        names = ", ".join(monster.name for monster in monsters)
+        print(f"{names}の勝利！")
     elif win == "draw":
         print("引き分け！")
+
 
 def input_int(message="数字を入力してください：") -> int:
     while True:
         try:
-            number = int(input(message))
-            break
+            return int(input(message))
         except ValueError:
             print("数字を入力してください!")
-            continue
-    return number
+
 
 def get_turn_order(players, monsters):
     living_characters = [
@@ -610,50 +674,61 @@ def get_turn_order(players, monsters):
         reverse=True,
     )
 
+
 def select_random_target(candidates):
     return random.choice(candidates)
 
-def select_lowest_hp_ratio_target(candidates):
-    lowest_hp_target = min(candidates, key=lambda x: x.hp / x.maxhp)
-    return lowest_hp_target
 
-#=======================================================================
-# 戦闘の進行処理
+def select_lowest_hp_ratio_target(candidates):
+    return min(
+        candidates,
+        key=lambda character: character.hp / character.maxhp,
+    )
+
+
+# =======================================================================
+# 戦闘進行
+
 
 def battle(players, monsters):
+    player_names = ", ".join(player.name for player in players)
+    monster_names = ", ".join(monster.name for monster in monsters)
 
     print(
         "==============================================\n"
         "Battle!!\n"
-        f"{', '.join(player.name for player in players)} vs {', '.join(monster.name for monster in monsters)}\n"
+        f"{player_names} vs {monster_names}\n"
         "=============================================="
     )
     print()
-
     time.sleep(1)
 
     win = get_battle_result(players, monsters)
+
     if win is not None:
         show_battle_result(win, players, monsters)
         return win
 
-    nround = 1
+    round_number = 1
 
     while True:
-
-        print(f"ROUND{nround}")
-        nround += 1
+        print(f"ROUND{round_number}")
+        round_number += 1
 
         order = get_turn_order(players, monsters)
-        print(f"[ {' -> '.join(character.name for character in order)} ]")
+        order_names = " -> ".join(
+            character.name for character in order
+        )
+
+        print(f"[ {order_names} ]")
         time.sleep(1)
         print()
 
         for character in order:
-
             process_turn(character, players, monsters)
 
             win = get_battle_result(players, monsters)
+
             if win is not None:
                 show_battle_result(win, players, monsters)
                 return win
@@ -661,7 +736,8 @@ def battle(players, monsters):
             time.sleep(1)
             print()
 
-def process_turn(character, players, monsters):
+
+def process_turn(character, players, monsters) -> None:
     character.start_turn()
 
     print(f"【{character.name}のターン】")
@@ -682,11 +758,7 @@ def process_turn(character, players, monsters):
         return
 
     if character in players:
-
-        success = character.choose_action(monsters, players)
-
-        if not success:
-            return
+        character.choose_action(monsters, players)
 
     elif character in monsters:
         target = character.choose_target(players)
@@ -697,87 +769,90 @@ def process_turn(character, players, monsters):
         character.act(target)
         target.check_down()
 
-#=======================================================================
+
+# =======================================================================
+# 定義データ
+# itemsは初期定義として扱い、ゲーム開始時にdeepcopyする。
+
 
 items = {
     0: {
         "key": "potion",
         "name": "回復薬",
         "heal": 30,
-        "count": 3
+        "count": 3,
     },
-
     1: {
         "key": "high_potion",
         "name": "上級回復薬",
         "heal": 60,
-        "count": 1
-    }
+        "count": 1,
+    },
 }
 
 slime_attacks = {
     0: {
         "name": "攻撃",
         "function": Player.attack,
-        "weight": lambda x: 10
+        "weight": lambda hp_ratio: 10,
     },
     1: {
         "name": "体当たり",
         "function": Monster.special_attack,
-        "weight": lambda x: -10*x+15
+        "weight": lambda hp_ratio: -10 * hp_ratio + 15,
     },
     2: {
         "name": "毒液",
         "function": Monster.poison_attack,
-        "weight": lambda x: -10*x+15
+        "weight": lambda hp_ratio: -10 * hp_ratio + 15,
     },
     3: {
         "name": "電撃",
         "function": Monster.paralysis_attack,
-        "weight": lambda x: -10*x+15
-    }
+        "weight": lambda hp_ratio: -10 * hp_ratio + 15,
+    },
 }
 
 gobrin_attacks = {
     10: {
         "name": "攻撃",
         "function": Player.attack,
-        "weight": lambda x:3
+        "weight": lambda hp_ratio: 3,
     },
     20: {
         "name": "体当たり",
         "function": Monster.special_attack,
-        "weight": lambda x: 7
-    }
+        "weight": lambda hp_ratio: 7,
+    },
 }
 
 status_definitions = {
     "paralysis_turn": {
-        "message":"痺れている!",
+        "message": "痺れている!",
         "damage": 5,
-        "blocks_action": True
+        "blocks_action": True,
     },
     "poison_turn": {
-        "message":"毒に侵されている!",
+        "message": "毒に侵されている!",
         "damage": 15,
-        "blocks_action": False
-    }
+        "blocks_action": False,
+    },
 }
 
-#=======================================================================
+
+# =======================================================================
+# 起動処理
+
 
 def main():
-
     print(
         "============\n"
         "| RPGゲーム|\n"
         "============\n"
     )
-
     time.sleep(1)
 
     players, monsters = create_battle_members()
-
     win = battle(players, monsters)
 
     time.sleep(1)
@@ -789,7 +864,6 @@ def main():
     elif win == "draw":
         print("戦闘は引き分けでした")
 
-#=======================================================================
 
 if __name__ == "__main__":
     main()
