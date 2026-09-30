@@ -70,6 +70,25 @@ class Player:
         self.status[debuff_key] = 0
         return True
 
+    def inflict_status(self, debuff_key, turn) -> bool:
+        applied = self.apply_status(debuff_key, turn)
+
+        if applied:
+            time.sleep(1)
+            print(f"<{self.name}は{status_definitions[debuff_key]['label']}にかかった！>")
+
+        return applied
+
+    def get_status_text(self) -> str:
+
+        status_text = ""
+
+        for definition_key, definition in status_definitions.items():
+            if self.status[definition_key] > 0:
+                status_text += f"({definition['label']}{self.status[definition_key]}ターン)"
+
+        return status_text
+
     def check_debuff(self) -> bool:
         # Falseなら行動できない
         if self.hp <= 0:
@@ -94,6 +113,8 @@ class Player:
 
             self.take_damage(definition["damage"])
             self.status[key] -= 1
+
+            time.sleep(1)
 
             if self.hp <= 0:
                 return False
@@ -136,25 +157,11 @@ class Hero(Player):
             self.input_func = input_func
 
     def show_status(self):
-        paralysis_text = ""
-        poison_text = ""
-
-        if self.status["paralysis_turn"] > 0:
-            paralysis_text = (
-                f"(麻痺{self.status['paralysis_turn']}ターン)"
-            )
-
-        if self.status["poison_turn"] > 0:
-            poison_text = (
-                f"(毒{self.status['poison_turn']}ターン)"
-            )
-
         print(
             f"{self.name} "
             f"HP: {self.hp}/{self.maxhp} "
             f"MP: {self.mp}/{self.maxmp}",
-            paralysis_text,
-            poison_text,
+            self.get_status_text()
         )
 
     def use_mp(self, mpcost) -> bool:
@@ -285,24 +292,10 @@ class Hero(Player):
     def choose_target(self, targets):
         while True:
             for index, target in enumerate(targets):
-                paralysis_text = ""
-                poison_text = ""
-
-                if target.status["paralysis_turn"] > 0:
-                    paralysis_text = (
-                        f"(麻痺{target.status['paralysis_turn']}ターン)"
-                    )
-
-                if target.status["poison_turn"] > 0:
-                    poison_text = (
-                        f"(毒{target.status['poison_turn']}ターン)"
-                    )
-
                 print(
                     f"└[{index}: {target.name}"
                     f"(HP{target.hp}/{target.maxhp})]",
-                    paralysis_text,
-                    poison_text,
+                    target.get_status_text()
                 )
 
             print("└[-1: 戻る]")
@@ -374,6 +367,7 @@ class Hero(Player):
         return True
 
     def poison_magic(self, target) -> bool:
+        # 発動の成否がTF
         mpcost = magic_mpcosts["poison"]
 
         if target.hp <= 0:
@@ -394,11 +388,7 @@ class Hero(Player):
         target.take_damage(damage)
 
         if target.hp > 0:
-            applied = target.apply_status("poison_turn", 3)
-
-            if applied:
-                time.sleep(1)
-                print(f"<{target.name}は毒にかかった！>")
+            applied = target.inflict_status("poison_turn", 3)
 
         return True
 
@@ -476,7 +466,7 @@ class Monster(Player):
             self.attack_chooser = attack_chooser
 
     def show_status(self):
-        print(f"{self.name} HP: {self.hp}/{self.maxhp}")
+        print(f"{self.name} HP: {self.hp}/{self.maxhp}", self.get_status_text())
 
     def special_attack(self, target):
         print(f"<{self.name}の体当たり！>")
@@ -493,11 +483,7 @@ class Monster(Player):
         target.take_damage(damage)
 
         if random.random() <= 0.75:
-            applied = target.apply_status("poison_turn", 3)
-
-            if applied:
-                time.sleep(1)
-                print(f"<{target.name}は毒にかかった！>")
+            target.inflict_status("poison_turn", 3)
 
     def paralysis_attack(self, target):
         print(f"{self.name}の電撃！")
@@ -507,11 +493,7 @@ class Monster(Player):
         target.take_damage(damage)
 
         if random.random() <= 0.25:
-            applied = target.apply_status("paralysis_turn", 1)
-
-            if applied:
-                time.sleep(1)
-                print(f"<{target.name}は麻痺にかかった！>")
+            target.inflict_status("paralysis_turn", 1)
 
     def choose_attack(self) -> int:
         # attacksのidを返す
@@ -848,11 +830,13 @@ gobrin_attacks = {
 
 status_definitions = {
     "paralysis_turn": {
+        "label": "麻痺",
         "message": "痺れている!",
         "damage": 5,
         "blocks_action": True,
     },
     "poison_turn": {
+        "label": "毒",
         "message": "毒に侵されている!",
         "damage": 15,
         "blocks_action": False,

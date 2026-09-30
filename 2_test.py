@@ -1747,6 +1747,363 @@ def test_hero_input_func():
     assert result == (False, -1)
     assert input_mock.call_count == 1
 
+# =======================================================================
+# 状態異常の表示
+
+def test_get_status_text():
+    # ---------------------------------------------------------------
+    # 1. 戻り値：Player・Hero・Monsterのどれでも同じ結果になる
+    # ケース名、麻痺、毒、期待する文字列
+    cases = [
+        ("状態異常なし", 0, 0, ""),
+        ("毒だけ", 0, 3, "(毒3ターン)"),
+        ("麻痺だけ", 1, 0, "(麻痺1ターン)"),
+        ("麻痺と毒", 1, 3, "(麻痺1ターン)(毒3ターン)"),
+        ("残り負数は表示しない", 0, -1, ""),
+        ("負数と麻痺", 1, -1, "(麻痺1ターン)"),
+    ]
+
+    for label, paralysis, poison, expected in cases:
+        characters = [
+            game.Player("基本キャラ", 100, 10),
+            game.Hero("勇者", 100, 10, 10, game.Inventory({})),
+            game.Monster("敵", 100, 10, {}),
+        ]
+
+        for character in characters:
+            character.status["paralysis_turn"] = paralysis
+            character.status["poison_turn"] = poison
+
+            status_object = character.status
+            status_before = character.status.copy()
+            context = f"{type(character).__name__}／{label}"
+
+            result = character.get_status_text()
+
+            assert isinstance(result, str), context
+            assert result == expected, context
+
+            # 表示用の文字列を作るだけで、状態は変えない
+            assert character.status is status_object, context
+            assert character.status == status_before, context
+
+    # ---------------------------------------------------------------
+    # 2. ラベルは定義データから読む
+    # 内側の辞書を渡し、"label"だけを一時的に変える
+
+    poison_definition = game.status_definitions["poison_turn"]
+    definition_before = poison_definition.copy()
+
+    hero = game.Hero("ラベル確認の勇者", 100, 10, 10, game.Inventory({}))
+    hero.status["poison_turn"] = 2
+
+    assert hero.get_status_text() == "(毒2ターン)"
+
+    with patch.dict(
+        game.status_definitions["poison_turn"],
+        {"label": "猛毒"},
+    ):
+        assert hero.get_status_text() == "(猛毒2ターン)"
+
+        # "label"以外のキーは残っている
+        assert poison_definition == {
+            **definition_before,
+            "label": "猛毒",
+        }
+
+        # 内側の辞書は差し替えられていない
+        assert game.status_definitions["poison_turn"] is poison_definition
+
+    # withを抜けると元に戻る
+    assert hero.get_status_text() == "(毒2ターン)"
+    assert poison_definition == definition_before
+    assert game.status_definitions["poison_turn"] is poison_definition
+
+    # ---------------------------------------------------------------
+    # 3. 表示している3か所がget_status_text()を使う
+
+    hero = game.Hero(
+        "表示する勇者",
+        100,
+        10,
+        10,
+        game.Inventory({}),
+        input_func=Mock(side_effect=[-1]),
+    )
+    monster = game.Monster("表示する敵", 100, 10, {})
+
+    with patch.object(
+        hero,
+        "get_status_text",
+        return_value="[勇者の目印]",
+    ) as hero_text, patch.object(
+        monster,
+        "get_status_text",
+        return_value="[敵の目印]",
+    ) as monster_text, patch("builtins.print") as print_mock:
+        hero.show_status()
+        monster.show_status()
+        result = hero.choose_target([monster, hero])
+
+    assert result == (False, -1)
+
+    # 各自：show_statusで1回＋対象一覧で1回
+    assert hero_text.call_count == 2
+    assert monster_text.call_count == 2
+
+    printed = " ".join(
+        str(arg)
+        for called in print_mock.call_args_list
+        for arg in called.args
+    )
+
+    assert printed.count("[勇者の目印]") == 2
+    assert printed.count("[敵の目印]") == 2
+
+
+# =======================================================================
+# 状態異常の付与
+
+
+def get_printed_lines(print_mock):
+    """print()の代役に渡された内容を、1回の呼び出しにつき1行で返す。"""
+    return [
+        " ".join(str(arg) for arg in called.args)
+        for called in print_mock.call_args_list
+    ]
+
+
+def test_inflict_status():
+    # ---------------------------------------------------------------
+    # 1. 付与に成功した場合
+    # ケース名、キー、現在ターン、付与ターン、期待ターン、期待メッセージ
+    success_cases = [
+        ("毒の付与", "poison_turn", 0, 3, 3, "<対象は毒にかかった！>"),
+        ("麻痺の付与", "paralysis_turn", 0, 1, 1, "<対象は麻痺にかかった！>"),
+        ("毒を延長", "poison_turn", 1, 3, 3, "<対象は毒にかかった！>"),
+        ("毒を短縮しない", "poison_turn", 5, 3, 5, "<対象は毒にかかった！>"),
+    ]
+
+    for (
+        label,
+        key,
+        current,
+        turn,
+        expected_turn,
+        expected_message,
+    ) in success_cases:
+        characters = [
+            game.Player("対象", 100, 10),
+            game.Hero("対象", 100, 10, 10, game.Inventory({})),
+            game.Monster("対象", 100, 10, {}),
+        ]
+
+        for character in characters:
+            context = f"{type(character).__name__}／{label}"
+            character.status[key] = current
+
+            other_keys = [
+                other for other in character.status if other != key
+            ]
+
+            with patch.object(
+                game.time,
+                "sleep",
+            ) as sleep_mock, patch(
+                "builtins.print",
+            ) as print_mock, patch.object(
+                character,
+                "apply_status",
+                wraps=character.apply_status,
+            ) as apply_mock:
+                result = character.inflict_status(key, turn)
+
+            assert result is True, context
+            assert character.status[key] == expected_turn, context
+
+            for other in other_keys:
+                assert character.status[other] == 0, context
+
+            apply_mock.assert_called_once_with(key, turn)
+            sleep_mock.assert_called_once_with(1)
+            assert get_printed_lines(print_mock) == [expected_message], context
+
+    # ---------------------------------------------------------------
+    # 2. 付与を拒否された場合：待ち時間も表示もない
+    # ケース名、HP、キー、付与ターン
+    rejected_cases = [
+        ("戦闘不能", 0, "poison_turn", 3),
+        ("未登録のキー", 100, "unknown_status", 3),
+        ("0ターン", 100, "poison_turn", 0),
+        ("負のターン", 100, "paralysis_turn", -1),
+    ]
+
+    for label, hp, key, turn in rejected_cases:
+        character = game.Monster("対象", 100, 10, {})
+        character.hp = hp
+        character.status["poison_turn"] = 2
+        character.status["paralysis_turn"] = 1
+        status_before = character.status.copy()
+
+        with patch.object(
+            game.time,
+            "sleep",
+        ) as sleep_mock, patch(
+            "builtins.print",
+        ) as print_mock, patch.object(
+            character,
+            "apply_status",
+            wraps=character.apply_status,
+        ) as apply_mock:
+            result = character.inflict_status(key, turn)
+
+        assert result is False, label
+        assert character.status == status_before, label
+        assert character.hp == hp, label
+        apply_mock.assert_called_once_with(key, turn)
+        sleep_mock.assert_not_called()
+        print_mock.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # 3. メッセージのラベルは定義データから読む
+
+    character = game.Player("対象", 100, 10)
+
+    with patch.dict(
+        game.status_definitions["poison_turn"],
+        {"label": "猛毒"},
+    ), patch.object(game.time, "sleep"), patch(
+        "builtins.print",
+    ) as print_mock:
+        result = character.inflict_status("poison_turn", 3)
+
+    assert result is True
+    assert get_printed_lines(print_mock) == ["<対象は猛毒にかかった！>"]
+    assert game.status_definitions["poison_turn"]["label"] == "毒"
+
+    # ---------------------------------------------------------------
+    # 4. ポイズン魔法はinflict_status()で毒を付与する
+
+    caster = game.Hero("使用者", 200, 30, 20, game.Inventory({}))
+    target = game.Monster("対象", 50, 10, {})
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ), patch.object(game.time, "sleep"), patch.object(
+        target,
+        "inflict_status",
+        wraps=target.inflict_status,
+    ) as inflict_mock:
+        success = caster.poison_magic(target)
+
+    assert success is True
+    assert caster.mp == 24
+    assert target.hp == 45
+    assert target.status["poison_turn"] == 3
+    inflict_mock.assert_called_once_with("poison_turn", 3)
+
+    # ---------------------------------------------------------------
+    # 5. 敵の毒液・電撃もinflict_status()で付与する
+    # メソッド名、random.random()の戻り値、期待する呼び出し（Noneなら呼ばない）
+    attack_cases = [
+        ("poison_attack", 0.0, ("poison_turn", 3)),
+        ("poison_attack", 0.99, None),
+        ("paralysis_attack", 0.0, ("paralysis_turn", 1)),
+        ("paralysis_attack", 0.99, None),
+    ]
+
+    for method_name, random_value, expected_call in attack_cases:
+        context = f"{method_name}／乱数{random_value}"
+
+        monster = game.Monster("攻撃する敵", 100, 10, {})
+        target = game.Player("攻撃対象", 100, 10)
+
+        with patch.object(
+            game,
+            "calculation_damage",
+            return_value=10,
+        ), patch.object(
+            game.random,
+            "random",
+            return_value=random_value,
+        ), patch.object(game.time, "sleep"), patch.object(
+            target,
+            "inflict_status",
+            wraps=target.inflict_status,
+        ) as inflict_mock:
+            getattr(monster, method_name)(target)
+
+        # 10 × 0.7 = 7ダメージ
+        assert target.hp == 93, context
+
+        if expected_call is None:
+            inflict_mock.assert_not_called()
+            assert target.status == {
+                "poison_turn": 0,
+                "paralysis_turn": 0,
+            }, context
+        else:
+            key, turn = expected_call
+            inflict_mock.assert_called_once_with(key, turn)
+            assert target.status[key] == turn, context
+
+
+def test_poison_magic_return_value():
+    # ---------------------------------------------------------------
+    # 1. 毒の付与が拒否されても、発動したならTrueを返す
+
+    caster = game.Hero("使用者", 200, 30, 20, game.Inventory({}))
+    target = game.Monster("対象", 50, 10, {})
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ), patch.object(game.time, "sleep"), patch.object(
+        target,
+        "inflict_status",
+        return_value=False,
+    ) as inflict_mock:
+        success = caster.poison_magic(target)
+
+    assert success is True
+    assert caster.mp == 24
+    assert target.hp == 45
+    inflict_mock.assert_called_once_with("poison_turn", 3)
+
+    # ---------------------------------------------------------------
+    # 2. メニュー経由：付与が拒否されても、1回の行動で終わる
+    # 1回目の入力：魔法ID 3（ポイズン）、2回目の入力：対象 0
+
+    input_mock = Mock(side_effect=[3, 0])
+    caster = game.Hero(
+        "メニュー使用者",
+        200,
+        30,
+        20,
+        game.Inventory({}),
+        input_func=input_mock,
+    )
+    target = game.Monster("対象", 50, 10, {})
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ), patch.object(game.time, "sleep"), patch.object(
+        target,
+        "inflict_status",
+        return_value=False,
+    ) as inflict_mock:
+        success = caster.choose_magic_action([target], [caster])
+
+    assert success is True
+    assert caster.mp == 24
+    assert target.hp == 45
+    assert input_mock.call_count == 2
+    inflict_mock.assert_called_once_with("poison_turn", 3)
 
 # =======================================================================
 # テスト実行
@@ -1785,7 +2142,10 @@ def run_tests():
         test_magic_mpcosts,
         test_monster_attack_chooser,
         test_select_weighted_attack,
-        test_hero_input_func
+        test_hero_input_func,
+        test_get_status_text,
+        test_inflict_status,
+        test_poison_magic_return_value
     ]
 
     # 全テストで待ち時間を無効化する。
