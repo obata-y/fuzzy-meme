@@ -2231,6 +2231,160 @@ def test_full_battle_with_scripted_input():
         )
 
 # =======================================================================
+# 経験値とレベルアップ
+
+
+def test_hero_gain_exp():
+    # ---------------------------------------------------------------
+    # 1. 初期値
+
+    hero = game.Hero("新人勇者", 100, 10, 20, game.Inventory({}))
+
+    assert hero.level == 1
+    assert hero.exp == 0
+
+    # ---------------------------------------------------------------
+    # 2. 経験値とレベルの計算
+    # ケース名、開始レベル、開始経験値、獲得量、
+    # 期待上昇数、期待レベル、期待経験値
+    cases = [
+        ("足りない", 1, 0, 29, 0, 1, 29),
+        ("ちょうど", 1, 0, 30, 1, 2, 0),
+        ("余りを持ち越す", 1, 0, 38, 1, 2, 8),
+        ("ためた分と合わせる", 1, 25, 5, 1, 2, 0),
+        ("2レベル上昇", 1, 0, 90, 2, 3, 0),
+        ("レベル2は60必要", 2, 0, 59, 0, 2, 59),
+        ("0は無視", 1, 10, 0, 0, 1, 10),
+        ("負数は無視", 1, 10, -5, 0, 1, 10),
+    ]
+
+    for (
+        label,
+        level,
+        exp,
+        amount,
+        expected_gained,
+        expected_level,
+        expected_exp,
+    ) in cases:
+        hero = game.Hero("経験値テスト", 100, 10, 20, game.Inventory({}))
+        hero.level = level
+        hero.exp = exp
+        hero.hp = 50
+
+        with patch("builtins.print") as print_mock:
+            gained = hero.gain_exp(amount)
+
+        assert gained == expected_gained, label
+        assert hero.level == expected_level, label
+        assert hero.exp == expected_exp, f"{label}: exp={hero.exp}, exp_exp={expected_exp}"
+
+        # 1レベルごとに最大HP・HP +20、攻撃力 +4
+        assert hero.maxhp == 100 + 20 * expected_gained, label
+        assert hero.hp == 50 + 20 * expected_gained, label
+        assert hero.attack_power == 20 + 4 * expected_gained, label
+
+        # MPは変わらない
+        assert hero.maxmp == 10, label
+        assert hero.mp == 10, label
+
+        # 上がったレベルごとに1行ずつメッセージが出る
+        expected_messages = [
+            f"<経験値テストはレベル{new_level}に上がった！>"
+            for new_level in range(level + 1, expected_level + 1)
+        ]
+        level_up_lines = [
+            line
+            for line in get_printed_lines(print_mock)
+            if "に上がった！" in line
+        ]
+        assert level_up_lines == expected_messages, label
+
+    # ---------------------------------------------------------------
+    # 3. 上昇量と必要経験値は定義データから読む
+
+    hero = game.Hero("調整テスト", 100, 10, 20, game.Inventory({}))
+
+    with patch.dict(
+        game.level_settings,
+        {"exp_per_level": 10, "maxhp": 1, "attack_power": 2},
+    ):
+        gained = hero.gain_exp(10)
+
+    assert gained == 1
+    assert hero.level == 2
+    assert hero.exp == 0
+    assert hero.maxhp == 101
+    assert hero.attack_power == 22
+    assert game.level_settings == {
+        "exp_per_level": 30,
+        "maxhp": 20,
+        "attack_power": 4,
+    }
+
+
+def test_distribute_exp():
+    # ---------------------------------------------------------------
+    # 1. モンスターの経験値の初期値
+
+    assert game.Monster("既定の敵", 100, 10, {}).exp == 0
+
+    players, monsters = game.create_battle_members()
+
+    assert [monster.exp for monster in monsters] == [8, 10, 20]
+
+    for player in players:
+        assert (player.level, player.exp) == (1, 0), player.name
+
+    # ---------------------------------------------------------------
+    # 2. 倒した敵の経験値を、生存している味方がそれぞれ受け取る
+    # ケース名、敵のHP、味方のHP、期待合計、
+    # 期待する味方の（レベル、経験値）
+    cases = [
+        ("全員撃破・全員生存", [0, 0, 0], [200, 150], 38, [(2, 8), (2, 8)]),
+        ("戦士は戦闘不能", [0, 0, 0], [200, 0], 38, [(2, 8), (1, 0)]),
+        ("ゴブリンだけ撃破", [50, 70, 0], [200, 150], 20, [(1, 20), (1, 20)]),
+        ("撃破なし", [50, 70, 80], [200, 150], 0, [(1, 0), (1, 0)]),
+    ]
+
+    for label, monster_hps, player_hps, expected_total, expected_states in cases:
+        players, monsters = game.create_battle_members()
+
+        for monster, hp in zip(monsters, monster_hps):
+            monster.hp = hp
+
+        for player, hp in zip(players, player_hps):
+            player.hp = hp
+
+        monster_states_before = [
+            (monster.hp, monster.exp)
+            for monster in monsters
+        ]
+
+        with patch.object(game.time, "sleep"):
+            total = game.distribute_exp(players, monsters)
+
+        assert total == expected_total, label
+
+        for player, hp, (level, exp) in zip(
+            players, player_hps, expected_states
+        ):
+            context = f"{label}／{player.name}"
+
+            assert player.level == level, context
+            assert player.exp == exp, context
+
+            # 戦闘不能の味方は経験値を受け取らず、HPも0のまま
+            if hp <= 0:
+                assert player.hp == 0, context
+
+        # モンスターの状態は変えない
+        assert [
+            (monster.hp, monster.exp)
+            for monster in monsters
+        ] == monster_states_before, label
+
+# =======================================================================
 # テスト実行
 
 
@@ -2272,7 +2426,9 @@ def run_tests():
         test_inflict_status,
         test_poison_magic_return_value,
         test_create_battle_members_input_func,
-        test_full_battle_with_scripted_input
+        test_full_battle_with_scripted_input,
+        test_hero_gain_exp,
+        test_distribute_exp
     ]
 
     # 全テストで待ち時間を無効化する。

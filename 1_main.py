@@ -150,6 +150,8 @@ class Hero(Player):
         self.mp = maxmp
         self.maxmp = maxmp
         self.inventory = inventory
+        self.level = 1
+        self.exp = 0
 
         if input_func is None:
             self.input_func = input_int
@@ -158,11 +160,33 @@ class Hero(Player):
 
     def show_status(self):
         print(
-            f"{self.name} "
+            f"{self.name}"
+            f"(Lv.{self.level}) "
             f"HP: {self.hp}/{self.maxhp} "
             f"MP: {self.mp}/{self.maxmp}",
             self.get_status_text()
         )
+
+    def gain_exp(self, amount) -> int:
+        # 上昇レベルを返す
+        if amount <= 0:
+            return 0
+
+        before_level = self.level
+        self.exp += amount
+
+        while self.exp >= self.level * level_settings["exp_per_level"]:
+            self.exp -= self.level * level_settings["exp_per_level"]
+            self.level += 1
+
+            self.maxhp += level_settings["maxhp"]
+            self.hp += level_settings["maxhp"]
+            self.attack_power += level_settings["attack_power"]
+
+            time.sleep(0.5)
+            print(f"<{self.name}はレベル{self.level}に上がった！>")
+
+        return self.level - before_level
 
     def use_mp(self, mpcost) -> bool:
         if mpcost < 0:
@@ -388,7 +412,7 @@ class Hero(Player):
         target.take_damage(damage)
 
         if target.hp > 0:
-            applied = target.inflict_status("poison_turn", 3)
+            target.inflict_status("poison_turn", 3)
 
         return True
 
@@ -450,10 +474,12 @@ class Monster(Player):
         speed=10,
         target_selector=None,
         attack_chooser=None,
+        exp=0,
     ):
         super().__init__(name, maxhp, attack_power, speed)
 
         self.attacks = attacks
+        self.exp = exp
 
         if target_selector is None:
             self.target_selector = select_random_target
@@ -587,6 +613,7 @@ def create_battle_members(input_func=None) -> tuple[list, list]:
             10,
             slime_attacks,
             speed=10,
+            exp=8,
         ),
         Monster(
             "スライムB",
@@ -594,6 +621,7 @@ def create_battle_members(input_func=None) -> tuple[list, list]:
             8,
             slime_attacks,
             speed=6,
+            exp=10,
         ),
         Monster(
             "ゴブリンA",
@@ -602,6 +630,7 @@ def create_battle_members(input_func=None) -> tuple[list, list]:
             gobrin_attacks,
             speed=18,
             target_selector=select_lowest_hp_ratio_target,
+            exp=20,
         ),
     ]
 
@@ -623,6 +652,19 @@ def calculation_damage(attack_power) -> int:
         print("<クリティカル！>")
 
     return damage
+
+
+def distribute_exp(players, monsters) -> int:
+    total_exp = sum(monster.exp for monster in monsters if monster.hp <= 0)
+
+    time.sleep(1)
+    print(f"{total_exp}経験値を獲得！")
+
+    for player in players:
+        if player.hp > 0:
+            player.gain_exp(total_exp)
+
+    return total_exp
 
 
 def get_battle_result(players, monsters):
@@ -866,6 +908,12 @@ magic_mpcosts = {
     "cure": 5
 }
 
+level_settings = {
+    "exp_per_level": 30,
+    "maxhp": 20,
+    "attack_power": 4,
+}
+
 # =======================================================================
 # 起動処理
 
@@ -884,6 +932,8 @@ def main():
     time.sleep(1)
 
     if win == "players":
+        distribute_exp(players, monsters)
+        time.sleep(1)
         print("次の冒険へ進みます...")
     elif win == "monsters":
         print("ゲームオーバー")
