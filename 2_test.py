@@ -1234,6 +1234,124 @@ def test_target_selector_initialization():
 
 
 # =======================================================================
+# 魔法のMPコスト定義
+
+
+def test_magic_mpcosts():
+    original_costs = {
+        "fire": 10,
+        "poison": 6,
+        "heal": 8,
+        "cure": 5,
+    }
+
+    # 魔法ID、コストのキー、ラベルの魔法名
+    magic_specs = [
+        (2, "fire", "ファイア"),
+        (3, "poison", "ポイズン"),
+        (4, "heal", "ヒール"),
+        (5, "cure", "キュア"),
+    ]
+
+    # ---------------------------------------------------------------
+    # 1. 通常時：定義の値とメニュー辞書が一致する
+
+    assert game.magic_mpcosts == original_costs
+
+    hero = game.Hero(
+        "MP定義テスト", 200, 30, 20, game.Inventory({})
+    )
+    magic_dict = hero.get_magic_action()
+
+    for magic_id, cost_key, name in magic_specs:
+        cost = game.magic_mpcosts[cost_key]
+
+        assert magic_dict[magic_id]["mpcost"] == cost, name
+        assert magic_dict[magic_id]["label"] == f"{name}(MP{cost})", name
+
+    # ---------------------------------------------------------------
+    # 2. ファイアのコストだけを一時的に3へ変更する
+
+    with patch.dict(
+        game.magic_mpcosts,
+        {"fire": 3},
+    ), patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ) as damage_mock, patch.object(game.time, "sleep"):
+        assert game.magic_mpcosts["fire"] == 3
+        assert game.magic_mpcosts["poison"] == 6
+
+        # メニュー辞書は呼び出した時点の値で作られる
+        magic_dict = hero.get_magic_action()
+
+        assert magic_dict[2]["mpcost"] == 3
+        assert magic_dict[2]["label"] == "ファイア(MP3)"
+        assert magic_dict[3]["mpcost"] == 6
+
+        # 2-1. fire_magic()を直接呼ぶと、MPが3だけ減る
+        caster = game.Hero(
+            "使用者", 200, 30, 20, game.Inventory({})
+        )
+        target = game.Monster("対象", 50, 10, {})
+
+        success = caster.fire_magic(target)
+
+        assert success is True
+        assert caster.mp == 27
+        assert target.hp == 37
+        damage_mock.assert_called_once_with(20)
+
+        # 2-2. MPが3未満なら失敗し、何も変わらない
+        caster = game.Hero(
+            "MP不足の使用者", 200, 30, 20, game.Inventory({})
+        )
+        caster.mp = 2
+        target = game.Monster("対象", 50, 10, {})
+        damage_mock.reset_mock()
+
+        success = caster.fire_magic(target)
+
+        assert success is False
+        assert caster.mp == 2
+        assert target.hp == 50
+        damage_mock.assert_not_called()
+
+        # 2-3. メニュー経由でも、判定と消費が同じ値になる
+        caster = game.Hero(
+            "メニュー使用者", 200, 30, 20, game.Inventory({})
+        )
+        caster.mp = 3
+        target = game.Monster("対象", 50, 10, {})
+        damage_mock.reset_mock()
+
+        # 1回目の入力：魔法ID 2、2回目の入力：対象 0
+        with patch.object(
+            game,
+            "input_int",
+            side_effect=[2, 0],
+        ) as input_mock:
+            success = caster.choose_magic_action([target], [caster])
+
+        assert success is True
+        assert caster.mp == 0
+        assert target.hp == 37
+        assert input_mock.call_count == 2
+        damage_mock.assert_called_once_with(20)
+
+    # ---------------------------------------------------------------
+    # 3. withを抜けると元の値に戻る
+
+    assert game.magic_mpcosts == original_costs
+
+    magic_dict = hero.get_magic_action()
+
+    assert magic_dict[2]["mpcost"] == 10
+    assert magic_dict[2]["label"] == "ファイア(MP10)"
+
+
+# =======================================================================
 # テスト実行
 
 
@@ -1267,6 +1385,7 @@ def run_tests():
         test_select_random_target,
         test_monster_target_selector,
         test_target_selector_initialization,
+        test_magic_mpcosts,
     ]
 
     # 全テストで待ち時間を無効化する。

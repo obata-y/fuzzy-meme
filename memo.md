@@ -130,3 +130,17 @@ selected = random.choices(
 print(selected["name"])
 
 
+# 辞書の扱い方の注意点
+
+dict2 = dict1
+
+としても、dict1はコピーされていない。実際、dict1の中身が書き換えられるとdict2も変更される。つまり、どちらも同じ辞書を参照している。
+完全な副製品を作りたいなら、
+
+dict2 = dict1.copy()
+
+または、dict1の中にさらに辞書がある入れ子構造になっている場合は
+
+dict2 = deepcopy(dict1)
+
+とする必要がある。これなら、dict1が書き換えられてもdict2には影響しない。

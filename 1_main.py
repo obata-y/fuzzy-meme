@@ -320,33 +320,33 @@ class Hero(Player):
     def get_magic_action(self):
         return {
             2: {
-                "label": "ファイア(MP10)",
+                "label": f"ファイア(MP{magic_mpcosts['fire']})",
                 "target_side": "enemy",
                 "function": self.fire_magic,
-                "mpcost": 10,
+                "mpcost": magic_mpcosts["fire"],
             },
             3: {
-                "label": "ポイズン(MP6)",
+                "label": f"ポイズン(MP{magic_mpcosts['poison']})",
                 "target_side": "enemy",
                 "function": self.poison_magic,
-                "mpcost": 6,
+                "mpcost": magic_mpcosts["poison"],
             },
             4: {
-                "label": "ヒール(MP8)",
+                "label": f"ヒール(MP{magic_mpcosts['heal']})",
                 "target_side": "ally",
                 "function": self.heal_magic,
-                "mpcost": 8,
+                "mpcost": magic_mpcosts["heal"],
             },
             5: {
-                "label": "キュア(MP5)",
+                "label": f"キュア(MP{magic_mpcosts['cure']})",
                 "target_side": "ally",
                 "function": self.cure_magic,
-                "mpcost": 5,
+                "mpcost": magic_mpcosts["cure"],
             },
         }
 
     def fire_magic(self, target) -> bool:
-        mpcost = 10
+        mpcost = magic_mpcosts["fire"]
 
         if target.hp <= 0:
             print("<戦闘不能キャラです>")
@@ -368,7 +368,7 @@ class Hero(Player):
         return True
 
     def poison_magic(self, target) -> bool:
-        mpcost = 6
+        mpcost = magic_mpcosts["poison"]
 
         if target.hp <= 0:
             print("<戦闘不能キャラです>")
@@ -397,7 +397,7 @@ class Hero(Player):
         return True
 
     def heal_magic(self, target) -> bool:
-        mpcost = 8
+        mpcost = magic_mpcosts["heal"]
 
         if target.hp <= 0:
             print("<戦闘不能キャラです>")
@@ -421,7 +421,7 @@ class Hero(Player):
         return True
 
     def cure_magic(self, target) -> bool:
-        mpcost = 5
+        mpcost = magic_mpcosts["cure"]
 
         if target.hp <= 0:
             print("<戦闘不能キャラです>")
@@ -562,7 +562,7 @@ class Inventory:
 
 
 # =======================================================================
-# 共通関数
+# グローバル関数
 
 
 def create_battle_members() -> tuple[list, list]:
@@ -839,6 +839,12 @@ status_definitions = {
     },
 }
 
+magic_mpcosts = {
+    "fire": 10,
+    "poison":6,
+    "heal":8,
+    "cure": 5
+}
 
 # =======================================================================
 # 起動処理
