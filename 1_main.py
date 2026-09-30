@@ -122,12 +122,18 @@ class Hero(Player):
         attack_power,
         inventory,
         speed=10,
+        input_func=None
     ):
         super().__init__(name, maxhp, attack_power, speed)
 
         self.mp = maxmp
         self.maxmp = maxmp
         self.inventory = inventory
+
+        if input_func is None:
+            self.input_func = input_int
+        else:
+            self.input_func = input_func
 
     def show_status(self):
         paralysis_text = ""
@@ -179,7 +185,7 @@ class Hero(Player):
             self.inventory.show_items()
             print("└[-1: 戻る]")
 
-            item_id = input_int(
+            item_id = self.input_func(
                 "使用するアイテムを選んでください："
             )
 
@@ -191,7 +197,7 @@ class Hero(Player):
 
     def choose_action(self, targets, allies) -> bool:
         while True:
-            action = input_int(
+            action = self.input_func(
                 "行動を決めてください\n"
                 "[0:攻撃 1:アイテム 2:魔法 3:防御]："
             )
@@ -238,7 +244,7 @@ class Hero(Player):
 
             print("└[-1: 戻る]")
 
-            selected_id = input_int("魔法を選択してください：")
+            selected_id = self.input_func("魔法を選択してください：")
 
             if selected_id == -1:
                 return False
@@ -301,7 +307,7 @@ class Hero(Player):
 
             print("└[-1: 戻る]")
 
-            selected_id = input_int("対象を選択してください：")
+            selected_id = self.input_func("対象を選択してください：")
 
             if selected_id == -1:
                 return False, selected_id
@@ -444,6 +450,7 @@ class Hero(Player):
         return True
 
 class Monster(Player):
+
     def __init__(
         self,
         name,
@@ -452,6 +459,7 @@ class Monster(Player):
         attacks,
         speed=10,
         target_selector=None,
+        attack_chooser=None,
     ):
         super().__init__(name, maxhp, attack_power, speed)
 
@@ -461,6 +469,11 @@ class Monster(Player):
             self.target_selector = select_random_target
         else:
             self.target_selector = target_selector
+
+        if attack_chooser is None:
+            self.attack_chooser = select_weighted_attack
+        else:
+            self.attack_chooser = attack_chooser
 
     def show_status(self):
         print(f"{self.name} HP: {self.hp}/{self.maxhp}")
@@ -500,17 +513,13 @@ class Monster(Player):
                 time.sleep(1)
                 print(f"<{target.name}は麻痺にかかった！>")
 
-    def choose_attack(self):
+    def choose_attack(self) -> int:
+        # attacksのidを返す
         hp_ratio = self.hp / self.maxhp
 
-        return random.choices(
-            list(self.attacks.keys()),
-            weights=[
-                data["weight"](hp_ratio)
-                for data in self.attacks.values()
-            ],
-            k=1,
-        )[0]
+        attack_id = self.attack_chooser(self.attacks, hp_ratio)
+
+        return attack_id
 
     def choose_target(self, targets):
         living_targets = [
@@ -685,6 +694,17 @@ def select_lowest_hp_ratio_target(candidates):
         key=lambda character: character.hp / character.maxhp,
     )
 
+
+def select_weighted_attack(attacks, hp_ratio) -> int:
+    # 攻撃idを返す
+    return random.choices(
+        list(attacks.keys()),
+        weights=[
+            data["weight"](hp_ratio)
+            for data in attacks.values()
+        ],
+        k=1,
+    )[0]
 
 # =======================================================================
 # 戦闘進行

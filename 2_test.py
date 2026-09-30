@@ -1319,20 +1319,22 @@ def test_magic_mpcosts():
         damage_mock.assert_not_called()
 
         # 2-3. メニュー経由でも、判定と消費が同じ値になる
+        # 1回目の入力：魔法ID 2、2回目の入力：対象 0
+        input_mock = Mock(side_effect=[2, 0])
+
         caster = game.Hero(
-            "メニュー使用者", 200, 30, 20, game.Inventory({})
+            "メニュー使用者",
+            200,
+            30,
+            20,
+            game.Inventory({}),
+            input_func=input_mock,
         )
         caster.mp = 3
         target = game.Monster("対象", 50, 10, {})
         damage_mock.reset_mock()
 
-        # 1回目の入力：魔法ID 2、2回目の入力：対象 0
-        with patch.object(
-            game,
-            "input_int",
-            side_effect=[2, 0],
-        ) as input_mock:
-            success = caster.choose_magic_action([target], [caster])
+        success = caster.choose_magic_action([target], [caster])
 
         assert success is True
         assert caster.mp == 0
@@ -1349,6 +1351,401 @@ def test_magic_mpcosts():
 
     assert magic_dict[2]["mpcost"] == 10
     assert magic_dict[2]["label"] == "ファイア(MP10)"
+
+
+# =======================================================================
+# 攻撃選択関数の注入
+
+
+def test_monster_attack_chooser():
+    # ---------------------------------------------------------------
+    # 1. 初期値：省略時もNone指定時もselect_weighted_attackになる
+
+    default_monster = game.Monster("既定の敵", 100, 10, {})
+
+    assert (
+        default_monster.attack_chooser
+        is game.select_weighted_attack
+    )
+
+    none_monster = game.Monster(
+        "None指定の敵",
+        100,
+        10,
+        {},
+        attack_chooser=None,
+    )
+
+    assert (
+        none_monster.attack_chooser
+        is game.select_weighted_attack
+    )
+
+    # ---------------------------------------------------------------
+    # 2. 初期メンバーは3体とも既定の選び方を使う
+
+    players, monsters = game.create_battle_members()
+
+    assert len(monsters) == 3
+
+    for monster in monsters:
+        assert (
+            monster.attack_chooser
+            is game.select_weighted_attack
+        ), monster.name
+
+    # ---------------------------------------------------------------
+    # 3. choose_attack()は渡された関数に選択を任せる
+    # 現在HP、期待するHP割合（最大HPは80）
+    cases = [
+        (80, 1.0),
+        (60, 0.75),
+        (40, 0.5),
+        (20, 0.25),
+    ]
+
+    for hp, expected_ratio in cases:
+        attack_a = Mock()
+        attack_b = Mock()
+
+        attacks = {
+            10: {
+                "name": "攻撃A",
+                "function": attack_a,
+                "weight": lambda hp_ratio: 1,
+            },
+            20: {
+                "name": "攻撃B",
+                "function": attack_b,
+                "weight": lambda hp_ratio: 1,
+            },
+        }
+
+        chooser = Mock(return_value=20)
+
+        monster = game.Monster(
+            "テスト敵",
+            80,
+            10,
+            attacks,
+            attack_chooser=chooser,
+        )
+        monster.hp = hp
+
+        label = f"HP{hp}/80"
+
+        assert monster.attack_chooser is chooser, label
+
+        # 生成しただけでは選び方の関数を呼ばない
+        chooser.assert_not_called()
+
+        attack_id = monster.choose_attack()
+
+        assert attack_id == 20, label
+        chooser.assert_called_once_with(attacks, expected_ratio)
+
+        # ==での一致だけでなく、同じ辞書オブジェクトが渡されたか
+        assert chooser.call_args.args[0] is attacks, label
+
+        # 攻撃を選ぶだけで、攻撃関数は呼ばない
+        attack_a.assert_not_called()
+        attack_b.assert_not_called()
+
+        # -----------------------------------------------------------
+        # 4. act()は選ばれたIDの攻撃関数だけを呼ぶ
+
+        target = game.Player("攻撃対象", 100, 10)
+        chooser.reset_mock()
+
+        result = monster.act(target)
+
+        assert result is None, label
+        chooser.assert_called_once_with(attacks, expected_ratio)
+        attack_b.assert_called_once_with(monster, target)
+        attack_a.assert_not_called()
+
+        # 攻撃関数は代役なので、HPは変わらない
+        assert monster.hp == hp, label
+        assert target.hp == 100, label
+
+
+def test_select_weighted_attack():
+    # 攻撃IDはわざと連番にしない（位置ではなくキーを使うか確認するため）
+    attacks = {
+        0: {
+            "name": "固定の重み",
+            "function": game.Player.attack,
+            "weight": lambda hp_ratio: 4,
+        },
+        5: {
+            "name": "HPが高いほど重い",
+            "function": game.Monster.special_attack,
+            "weight": lambda hp_ratio: 10 * hp_ratio,
+        },
+        9: {
+            "name": "HPが低いほど重い",
+            "function": game.Monster.poison_attack,
+            "weight": lambda hp_ratio: 20 - 10 * hp_ratio,
+        },
+    }
+
+    # 実行前の状態を控える（内側の辞書は浅いコピーで十分）
+    keys_before = list(attacks.keys())
+    inner_before = {
+        attack_id: data
+        for attack_id, data in attacks.items()
+    }
+    contents_before = {
+        attack_id: data.copy()
+        for attack_id, data in attacks.items()
+    }
+
+    # ---------------------------------------------------------------
+    # 1. random.choicesへの渡し方と、戻り値の取り出し方
+    # HP割合、期待する重み、choicesの代役が返すID
+    cases = [
+        (1.0, [4, 10.0, 10.0], 9),
+        (0.5, [4, 5.0, 15.0], 5),
+        (0.25, [4, 2.5, 17.5], 0),
+    ]
+
+    for hp_ratio, expected_weights, returned_id in cases:
+        label = f"HP割合{hp_ratio}"
+
+        with patch.object(
+            game.random,
+            "choices",
+            return_value=[returned_id],
+        ) as choices_mock:
+            result = game.select_weighted_attack(attacks, hp_ratio)
+
+        assert result == returned_id, label
+        choices_mock.assert_called_once_with(
+            [0, 5, 9],
+            weights=expected_weights,
+            k=1,
+        )
+
+    # ---------------------------------------------------------------
+    # 2. 本物のrandom.choicesで、重み0の攻撃は選ばれない
+
+    zero_weight_attacks = {
+        1: {
+            "name": "選ばれない攻撃",
+            "function": game.Player.attack,
+            "weight": lambda hp_ratio: 0,
+        },
+        2: {
+            "name": "必ず選ばれる攻撃",
+            "function": game.Monster.special_attack,
+            "weight": lambda hp_ratio: 5,
+        },
+    }
+
+    for _ in range(20):
+        result = game.select_weighted_attack(zero_weight_attacks, 0.5)
+        assert result == 2
+
+    # ---------------------------------------------------------------
+    # 3. 攻撃定義の辞書を変更していない
+
+    assert list(attacks.keys()) == keys_before
+
+    for attack_id, data in attacks.items():
+        assert data is inner_before[attack_id]
+        assert data == contents_before[attack_id]
+
+
+# =======================================================================
+# 入力関数の注入
+
+
+ACTION_MESSAGE = (
+    "行動を決めてください\n"
+    "[0:攻撃 1:アイテム 2:魔法 3:防御]："
+)
+ITEM_MESSAGE = "使用するアイテムを選んでください："
+TARGET_MESSAGE = "対象を選択してください："
+
+
+def get_input_messages(input_mock):
+    """代役の入力関数に渡されたメッセージを、呼ばれた順に返す。"""
+    return [
+        called.args[0]
+        for called in input_mock.call_args_list
+    ]
+
+
+def test_hero_input_func():
+    # ---------------------------------------------------------------
+    # 1. 初期値：省略時もNone指定時もinput_intになる
+
+    default_hero = game.Hero(
+        "既定の勇者", 100, 10, 10, game.Inventory({})
+    )
+
+    assert default_hero.input_func is game.input_int
+
+    none_hero = game.Hero(
+        "None指定の勇者",
+        100,
+        10,
+        10,
+        game.Inventory({}),
+        input_func=None,
+    )
+
+    assert none_hero.input_func is game.input_int
+
+    # ---------------------------------------------------------------
+    # 2. 初期メンバーは2人とも本物の入力関数を使う
+
+    players, monsters = game.create_battle_members()
+
+    assert len(players) == 2
+
+    for player in players:
+        assert player.input_func is game.input_int, player.name
+
+    # ---------------------------------------------------------------
+    # 3. 攻撃：[0, 0] → 攻撃を選び、対象0を攻撃する
+
+    input_mock = Mock(side_effect=[0, 0])
+    hero = game.Hero(
+        "攻撃する勇者",
+        100,
+        10,
+        20,
+        game.Inventory({}),
+        input_func=input_mock,
+    )
+    monster = game.Monster("対象", 50, 10, {})
+
+    assert hero.input_func is input_mock
+
+    # 生成しただけでは入力を求めない
+    input_mock.assert_not_called()
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ) as damage_mock, patch.object(game.time, "sleep"):
+        success = hero.choose_action([monster], [hero])
+
+    assert success is True
+    assert monster.hp == 40
+    assert hero.is_defending is False
+    damage_mock.assert_called_once_with(20)
+    assert input_mock.call_count == 2
+    assert get_input_messages(input_mock) == [
+        ACTION_MESSAGE,
+        TARGET_MESSAGE,
+    ]
+
+    # ---------------------------------------------------------------
+    # 4. キャンセル：[0, -1, 3] → 対象選択から戻って防御する
+
+    input_mock = Mock(side_effect=[0, -1, 3])
+    hero = game.Hero(
+        "キャンセルする勇者",
+        100,
+        10,
+        20,
+        game.Inventory({}),
+        input_func=input_mock,
+    )
+    monster = game.Monster("対象", 50, 10, {})
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ) as damage_mock, patch.object(game.time, "sleep"):
+        success = hero.choose_action([monster], [hero])
+
+    assert success is True
+    assert hero.is_defending is True
+    assert monster.hp == 50
+    damage_mock.assert_not_called()
+    assert input_mock.call_count == 3
+    assert get_input_messages(input_mock) == [
+        ACTION_MESSAGE,
+        TARGET_MESSAGE,
+        ACTION_MESSAGE,
+    ]
+
+    # ---------------------------------------------------------------
+    # 5. アイテム：[1, 9, 0] → 存在しないID9のあとに回復薬を使う
+
+    input_mock = Mock(side_effect=[1, 9, 0])
+    inventory = game.Inventory(deepcopy(game.items))
+    hero = game.Hero(
+        "アイテムを使う勇者",
+        200,
+        10,
+        20,
+        inventory,
+        input_func=input_mock,
+    )
+    hero.hp = 100
+    monster = game.Monster("対象", 50, 10, {})
+
+    success = hero.choose_action([monster], [hero])
+
+    assert success is True
+    assert hero.hp == 130
+    assert inventory.items[0]["count"] == 2
+    assert inventory.items[1]["count"] == 1
+    assert input_mock.call_count == 3
+    assert get_input_messages(input_mock) == [
+        ACTION_MESSAGE,
+        ITEM_MESSAGE,
+        ITEM_MESSAGE,
+    ]
+
+    # ---------------------------------------------------------------
+    # 6. 対象選択：範囲外 → 負の数 → 戦闘不能 → 正しい番号
+
+    fallen = game.Player("戦闘不能の対象", 100, 10)
+    fallen.hp = 0
+    survivor = game.Player("生存している対象", 100, 10)
+    targets = [fallen, survivor]
+
+    # -2は「戻る」ではなく範囲外として扱われることも確認する
+    input_mock = Mock(side_effect=[5, -2, 0, 1])
+    hero = game.Hero(
+        "対象を選ぶ勇者",
+        100,
+        10,
+        20,
+        game.Inventory({}),
+        input_func=input_mock,
+    )
+
+    result = hero.choose_target(targets)
+
+    assert result == (True, 1)
+    assert input_mock.call_count == 4
+    assert get_input_messages(input_mock) == [TARGET_MESSAGE] * 4
+
+    # ---------------------------------------------------------------
+    # 7. 対象選択の「戻る」：[-1] → (False, -1)
+
+    input_mock = Mock(side_effect=[-1])
+    hero = game.Hero(
+        "戻る勇者",
+        100,
+        10,
+        20,
+        game.Inventory({}),
+        input_func=input_mock,
+    )
+
+    result = hero.choose_target(targets)
+
+    assert result == (False, -1)
+    assert input_mock.call_count == 1
 
 
 # =======================================================================
@@ -1386,6 +1783,9 @@ def run_tests():
         test_monster_target_selector,
         test_target_selector_initialization,
         test_magic_mpcosts,
+        test_monster_attack_chooser,
+        test_select_weighted_attack,
+        test_hero_input_func
     ]
 
     # 全テストで待ち時間を無効化する。
