@@ -556,12 +556,28 @@ class Inventory:
 # グローバル関数
 
 
-def create_battle_members() -> tuple[list, list]:
+def create_battle_members(input_func=None) -> tuple[list, list]:
     inventory = Inventory(deepcopy(items))
 
     players = [
-        Hero("勇者", 200, 30, 20, inventory, speed=15),
-        Hero("戦士", 150, 0, 40, inventory, speed=8),
+        Hero(
+            "勇者",
+            200,
+            30,
+            20,
+            inventory,
+            speed=15,
+            input_func=input_func
+        ),
+        Hero(
+            "戦士",
+            150,
+            0,
+            40,
+            inventory,
+            speed=8,
+            input_func=input_func
+        ),
     ]
 
     monsters = [

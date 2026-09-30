@@ -2106,6 +2106,131 @@ def test_poison_magic_return_value():
     inflict_mock.assert_called_once_with("poison_turn", 3)
 
 # =======================================================================
+# 初期メンバーへの入力関数の注入・戦闘全体
+
+
+def test_create_battle_members_input_func():
+    # ---------------------------------------------------------------
+    # 1. 省略時・None指定時は、2人とも本物の入力関数を使う
+
+    for players, _ in (
+        game.create_battle_members(),
+        game.create_battle_members(input_func=None),
+    ):
+        assert len(players) == 2
+
+        for player in players:
+            assert player.input_func is game.input_int, player.name
+
+    # ---------------------------------------------------------------
+    # 2. 代役を渡すと、2人とも同じ代役を使う
+
+    input_mock = Mock()
+    players, monsters = game.create_battle_members(input_func=input_mock)
+
+    for player in players:
+        assert player.input_func is input_mock, player.name
+
+    # 生成しただけでは入力を求めない
+    input_mock.assert_not_called()
+
+    # 入力関数以外の初期状態は変わらない
+    assert [player.name for player in players] == ["勇者", "戦士"]
+    assert [monster.name for monster in monsters] == [
+        "スライムA",
+        "スライムB",
+        "ゴブリンA",
+    ]
+    assert players[1].inventory is players[0].inventory
+
+    # ---------------------------------------------------------------
+    # 3. 別の呼び出しには影響しない
+
+    other_mock = Mock()
+    players1, _ = game.create_battle_members(input_func=input_mock)
+    players2, _ = game.create_battle_members(input_func=other_mock)
+    players3, _ = game.create_battle_members()
+
+    for player in players1:
+        assert player.input_func is input_mock
+
+    for player in players2:
+        assert player.input_func is other_mock
+
+    for player in players3:
+        assert player.input_func is game.input_int
+
+
+def test_full_battle_with_scripted_input():
+    # 入力の台本（勇者と戦士で同じ代役を共有する）
+    # ROUND1：勇者 → 攻撃・ゴブリンA(2)、戦士 → 攻撃・スライムA(0)
+    # ROUND2：勇者 → 攻撃・スライムB(1) で決着
+    input_mock = Mock(side_effect=[0, 2, 0, 0, 0, 1])
+
+    players, monsters = game.create_battle_members(input_func=input_mock)
+    hero, warrior = players
+    slime_a, slime_b, goblin = monsters
+
+    # 攻撃は常に通常攻撃（スライムはID 0、ゴブリンはID 10）
+    slime_a.attack_chooser = Mock(return_value=0)
+    slime_b.attack_chooser = Mock(return_value=0)
+    goblin.attack_chooser = Mock(return_value=10)
+
+    # スライムは生存者の先頭を狙う。ゴブリンは本物のHP割合選択のまま
+    def select_first(candidates):
+        return candidates[0]
+
+    slime_a.target_selector = select_first
+    slime_b.target_selector = select_first
+
+    # 味方（攻撃力20・40）は100ダメージ、敵（攻撃力15・10・8）は1ダメージ
+    def fixed_damage(attack_power):
+        return 100 if attack_power >= 20 else 1
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        side_effect=fixed_damage,
+    ) as damage_mock, patch.object(game.time, "sleep"):
+        result = game.battle(players, monsters)
+
+    # ---------------------------------------------------------------
+    # 結果
+
+    assert result == "players"
+
+    # ゴブリン・スライムA・スライムBが1回ずつ勇者を攻撃した
+    assert hero.hp == 197
+    assert warrior.hp == 150
+
+    for monster in monsters:
+        assert monster.hp == 0, monster.name
+
+    # ---------------------------------------------------------------
+    # 進行の順番
+
+    # 台本の入力をちょうど使い切った
+    assert input_mock.call_count == 6
+
+    # 行動順：ゴブリンA → 勇者 → スライムA → 戦士 → スライムB → 勇者
+    attack_powers = [
+        called.args[0]
+        for called in damage_mock.call_args_list
+    ]
+    assert attack_powers == [15, 20, 10, 40, 8, 20]
+
+    # 各モンスターは1回ずつ攻撃を選んだ
+    for monster, expected_hp_ratio in [
+        (goblin, 1.0),
+        (slime_a, 1.0),
+        (slime_b, 1.0),
+    ]:
+        monster.attack_chooser.assert_called_once_with(
+            monster.attacks,
+            expected_hp_ratio,
+        )
+
+# =======================================================================
 # テスト実行
 
 
@@ -2145,7 +2270,9 @@ def run_tests():
         test_hero_input_func,
         test_get_status_text,
         test_inflict_status,
-        test_poison_magic_return_value
+        test_poison_magic_return_value,
+        test_create_battle_members_input_func,
+        test_full_battle_with_scripted_input
     ]
 
     # 全テストで待ち時間を無効化する。
