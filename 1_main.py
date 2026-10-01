@@ -36,7 +36,7 @@ class Player:
 
     def get_attack_power(self) -> int:
         # 状態から攻撃倍率を求める
-        multiplier = 1
+        multiplier = 1.0
 
         for key, definition in status_definitions.items():
             if self.status[key] > 0:
@@ -509,31 +509,13 @@ class Monster(Player):
         print(f"{self.name} HP: {self.hp}/{self.maxhp}", self.get_status_text())
 
     def special_attack(self, target):
-        print(f"<{self.name}の体当たり！>")
-
-        damage = calculation_damage(self.get_attack_power())
-        damage = round(damage * 1.1)
-        target.take_damage(damage)
+        self.use_skill(target, "体当たり", 1.1)
 
     def poison_attack(self, target):
-        print(f"<{self.name}の毒液！>")
-
-        damage = calculation_damage(self.get_attack_power())
-        damage = round(damage * 0.7)
-        target.take_damage(damage)
-
-        if random.random() <= 0.75:
-            target.inflict_status("poison_turn", 3)
+        self.use_skill(target, "毒液", 0.7, "poison_turn", 3, 0.75)
 
     def paralysis_attack(self, target):
-        print(f"{self.name}の電撃！")
-
-        damage = calculation_damage(self.get_attack_power())
-        damage = round(damage * 0.7)
-        target.take_damage(damage)
-
-        if random.random() <= 0.25:
-            target.inflict_status("paralysis_turn", 1)
+        self.use_skill(target, "電撃", 0.7, "paralysis_turn", 1, 0.25)
 
     def choose_attack(self) -> int:
         # attacksのidを返す
@@ -557,6 +539,17 @@ class Monster(Player):
         attack_id = self.choose_attack()
         self.attacks[attack_id]["function"](self, target)
 
+    def use_skill(self, target, skill_name, multiplier, status_key=None, turn=0, chance=0.0):
+        print(f"<{self.name}の{skill_name}！>")
+
+        damage = round(calculation_damage(self.get_attack_power()) * multiplier)
+
+        target.take_damage(damage)
+
+        if status_key is not None:
+            if target.hp > 0:
+                if random.random() <= chance:
+                    target.inflict_status(status_key, turn)
 
 # =======================================================================
 # 所持品

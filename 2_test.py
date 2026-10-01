@@ -2693,6 +2693,145 @@ def test_burn_status():
     assert target.status == make_status(burn_turn=2)
 
 # =======================================================================
+# 敵の技の共通化
+
+
+def test_monster_use_skill():
+    # ---------------------------------------------------------------
+    # 1. 状態異常のない技：表示・ダメージだけで、乱数は使わない
+
+    monster = game.Monster("敵", 100, 20, {})
+    target = game.Player("対象", 100, 10)
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ) as damage_mock, patch.object(
+        game.random,
+        "random",
+        return_value=0.0,
+    ) as random_mock, patch.object(
+        target,
+        "inflict_status",
+        wraps=target.inflict_status,
+    ) as inflict_mock, patch("builtins.print") as print_mock:
+        result = monster.use_skill(target, "体当たり", 1.1)
+
+    assert result is None
+    damage_mock.assert_called_once_with(20)
+
+    # 10 × 1.1 = 11ダメージ
+    assert target.hp == 89
+    assert get_printed_lines(print_mock)[0] == "<敵の体当たり！>"
+    random_mock.assert_not_called()
+    inflict_mock.assert_not_called()
+    assert target.status == make_status()
+
+    # ---------------------------------------------------------------
+    # 2. 状態異常のある技：生存していて、乱数が確率以下なら付与する
+    # ケース名、対象HP、乱数、期待する毒ターン、乱数を使うか
+    cases = [
+        ("付与する", 100, 0.0, 3, True),
+        ("境界の確率は付与する", 100, 0.75, 3, True),
+        ("確率で外れる", 100, 0.76, 0, True),
+        ("倒したら判定しない", 5, 0.0, 0, False),
+    ]
+
+    for label, target_hp, random_value, expected_poison, uses_random in cases:
+        monster = game.Monster("敵", 100, 20, {})
+        target = game.Player("対象", 100, 10)
+        target.hp = target_hp
+
+        with patch.object(
+            game,
+            "calculation_damage",
+            return_value=10,
+        ), patch.object(
+            game.random,
+            "random",
+            return_value=random_value,
+        ) as random_mock, patch.object(
+            target,
+            "inflict_status",
+            wraps=target.inflict_status,
+        ) as inflict_mock, patch.object(game.time, "sleep"):
+            monster.use_skill(target, "毒液", 0.7, "poison_turn", 3, 0.75)
+
+        # 10 × 0.7 = 7ダメージ
+        assert target.hp == max(target_hp - 7, 0), label
+        assert target.status["poison_turn"] == expected_poison, label
+        assert random_mock.call_count == (1 if uses_random else 0), label
+
+        if expected_poison > 0:
+            inflict_mock.assert_called_once_with("poison_turn", 3)
+        else:
+            inflict_mock.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # 3. 下がった攻撃力でダメージを計算する
+
+    monster = game.Monster("火傷の敵", 100, 20, {})
+    monster.status["burn_turn"] = 2
+    target = game.Player("対象", 100, 10)
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ) as damage_mock:
+        monster.use_skill(target, "体当たり", 1.1)
+
+    damage_mock.assert_called_once_with(10)
+    assert monster.attack_power == 20
+
+    # ---------------------------------------------------------------
+    # 4. 3つの技は、決まった引数でuse_skill()を呼ぶだけ
+    # メソッド名、use_skillに渡す（targetより後ろの）引数
+    delegation_cases = [
+        ("special_attack", ("体当たり", 1.1)),
+        ("poison_attack", ("毒液", 0.7, "poison_turn", 3, 0.75)),
+        ("paralysis_attack", ("電撃", 0.7, "paralysis_turn", 1, 0.25)),
+    ]
+
+    for method_name, expected_args in delegation_cases:
+        monster = game.Monster("敵", 100, 20, {})
+        target = game.Player("対象", 100, 10)
+
+        with patch.object(monster, "use_skill") as skill_mock:
+            result = getattr(monster, method_name)(target)
+
+        assert result is None, method_name
+        skill_mock.assert_called_once_with(target, *expected_args)
+
+        # 代役なので、実際の攻撃は起きない
+        assert target.hp == 100, method_name
+
+    # ---------------------------------------------------------------
+    # 5. 技名の表示がそろっている（電撃にも< >が付く）
+
+    for method_name, skill_name in [
+        ("special_attack", "体当たり"),
+        ("poison_attack", "毒液"),
+        ("paralysis_attack", "電撃"),
+    ]:
+        monster = game.Monster("敵", 100, 20, {})
+        target = game.Player("対象", 100, 10)
+
+        with patch.object(
+            game,
+            "calculation_damage",
+            return_value=10,
+        ), patch.object(
+            game.random,
+            "random",
+            return_value=0.99,
+        ), patch("builtins.print") as print_mock:
+            getattr(monster, method_name)(target)
+
+        assert get_printed_lines(print_mock)[0] == f"<敵の{skill_name}！>", method_name
+
+# =======================================================================
 # テスト実行
 
 
@@ -2738,7 +2877,8 @@ def run_tests():
         test_hero_gain_exp,
         test_distribute_exp,
         test_status_slots_follow_definitions,
-        test_burn_status
+        test_burn_status,
+        test_monster_use_skill
     ]
 
     # 全テストで待ち時間を無効化する。
