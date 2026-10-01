@@ -17,8 +17,8 @@ class Player:
         self.speed = speed
         self.is_defending = False
         self.status = {
-            "poison_turn": 0,
-            "paralysis_turn": 0,
+            key: 0
+            for key in status_definitions
         }
 
     def attack(self, target):
@@ -897,6 +897,12 @@ status_definitions = {
         "label": "毒",
         "message": "毒に侵されている!",
         "damage": 15,
+        "blocks_action": False,
+    },
+    "test_turn": {
+        "label": "テスト",
+        "message": "テスト中!",
+        "damage": 1,
         "blocks_action": False,
     },
 }

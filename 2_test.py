@@ -23,6 +23,19 @@ def assert_same_objects(actual, expected):
     ), "一覧の要素・順序が違います"
 
 
+def make_status(**turns):
+    """期待する状態の辞書を作る。書かなかった状態異常は0になる。"""
+    status = {
+        key: 0
+        for key in game.status_definitions
+    }
+
+    for key, turn in turns.items():
+        assert key in status, f"未登録の状態異常です：{key}"
+        status[key] = turn
+
+    return status
+
 # =======================================================================
 # 対象選択・状態異常・防御
 
@@ -117,10 +130,9 @@ def test_debuff():
 
             assert can_act is expected_can_act
             assert player.hp == expected_hp
-            assert player.status == {
-                "poison_turn": expected_poison,
-                "paralysis_turn": expected_paralysis,
-            }
+            assert player.status == make_status(
+                poison_turn=expected_poison, paralysis_turn=expected_paralysis
+            )
 
 
 def test_defend():
@@ -297,10 +309,9 @@ def test_clear_status():
 
         assert success is expected_success, label
         assert player.hp == hp, label
-        assert player.status == {
-            "poison_turn": expected_poison,
-            "paralysis_turn": expected_paralysis,
-        }, label
+        assert player.status == make_status(
+            poison_turn=expected_poison, paralysis_turn=expected_paralysis
+        ), label
 
 
 def test_cure_magic():
@@ -344,10 +355,9 @@ def test_cure_magic():
         assert caster.status == caster_status, label
         assert target.hp == target_hp, label
         assert target.mp == 7, label
-        assert target.status == {
-            "poison_turn": expected_poison,
-            "paralysis_turn": paralysis,
-        }, label
+        assert target.status == make_status(
+            poison_turn=expected_poison, paralysis_turn=paralysis
+        ), label
 
 
 def test_cure_magic_self():
@@ -363,20 +373,18 @@ def test_cure_magic_self():
     assert success is True
     assert player.mp == 5
     assert player.hp == 120
-    assert player.status == {
-        "poison_turn": 0,
-        "paralysis_turn": 1,
-    }
+    assert player.status == make_status(
+        poison_turn=0, paralysis_turn=1
+    )
 
     success = player.cure_magic(player)
 
     assert success is False
     assert player.mp == 5
     assert player.hp == 120
-    assert player.status == {
-        "poison_turn": 0,
-        "paralysis_turn": 1,
-    }
+    assert player.status == make_status(
+        poison_turn=0, paralysis_turn=1
+    )
 
 
 # =======================================================================
@@ -432,10 +440,9 @@ def test_poison_magic():
             assert caster.hp == 120, label
             assert caster.status == caster_status, label
             assert target.hp == expected_hp, label
-            assert target.status == {
-                "poison_turn": expected_poison,
-                "paralysis_turn": 1,
-            }, label
+            assert target.status == make_status(
+                poison_turn=expected_poison, paralysis_turn=1
+            ), label
 
             if expected_success:
                 damage_mock.assert_called_once_with(
@@ -469,10 +476,9 @@ def test_monster_poison_turn():
 
             assert can_act is expected_can_act
             assert monster.hp == expected_hp
-            assert monster.status == {
-                "poison_turn": 2,
-                "paralysis_turn": 0,
-            }
+            assert monster.status == make_status(
+                poison_turn=2
+            )
 
 
 # =======================================================================
@@ -720,11 +726,7 @@ def test_create_battle_members_initial_state():
     for character in players + monsters:
         assert character.hp == character.maxhp
         assert character.is_defending is False
-        assert character.status == {
-            "poison_turn": 0,
-            "paralysis_turn": 0,
-        }
-
+        assert character.status == make_status()
     inventory = players[0].inventory
 
     assert isinstance(inventory, game.Inventory)
@@ -800,10 +802,7 @@ def test_create_battle_members_independence():
     assert hero2.hp == 200
     assert hero2.mp == 30
     assert hero2.is_defending is False
-    assert hero2.status == {
-        "poison_turn": 0,
-        "paralysis_turn": 0,
-    }
+    assert hero2.status == make_status()
 
     assert game.items == items_before
     assert game.items[0]["count"] == 3
@@ -886,10 +885,9 @@ def test_process_turn():
                 assert result is None, context
                 assert character.hp == expected_hp, context
                 assert character.is_defending is False, context
-                assert character.status == {
-                    "poison_turn": expected_poison,
-                    "paralysis_turn": expected_paralysis,
-                }, context
+                assert character.status == make_status(
+                    poison_turn=expected_poison, paralysis_turn=expected_paralysis
+                ), context
 
                 if hp <= 0:
                     debuff_check.assert_not_called()
@@ -1771,8 +1769,13 @@ def test_get_status_text():
         ]
 
         for character in characters:
-            character.status["paralysis_turn"] = paralysis
-            character.status["poison_turn"] = poison
+            # 定義データと逆の並び順にしておく。
+            # 表示順が self.status ではなく定義データで決まることを確認するため。
+            status = make_status(
+                paralysis_turn=paralysis,
+                poison_turn=poison,
+            )
+            character.status = dict(reversed(list(status.items())))
 
             status_object = character.status
             status_before = character.status.copy()
@@ -2040,10 +2043,7 @@ def test_inflict_status():
 
         if expected_call is None:
             inflict_mock.assert_not_called()
-            assert target.status == {
-                "poison_turn": 0,
-                "paralysis_turn": 0,
-            }, context
+            assert target.status == make_status(), context
         else:
             key, turn = expected_call
             inflict_mock.assert_called_once_with(key, turn)
@@ -2385,6 +2385,95 @@ def test_distribute_exp():
         ] == monster_states_before, label
 
 # =======================================================================
+# 状態異常の枠と定義データ
+
+
+def test_status_slots_follow_definitions():
+    # 確認実験などで定義に追加されるキーと重ならない名前にする
+    new_key = "slot_check_turn"
+
+    # 実行前の定義を控える（キーの並びと、各定義の辞書そのもの）
+    keys_before = list(game.status_definitions)
+    inner_before = dict(game.status_definitions)
+
+    # ---------------------------------------------------------------
+    # 1. 状態の枠は定義データと同じキー・同じ順番で、すべて0
+
+    characters = [
+        game.Player("基本キャラ", 100, 10),
+        game.Hero("勇者", 100, 10, 10, game.Inventory({})),
+        game.Monster("敵", 100, 10, {}),
+    ]
+
+    for character in characters:
+        context = type(character).__name__
+
+        assert list(character.status) == keys_before, context
+        assert all(turn == 0 for turn in character.status.values()), context
+
+    # キャラクターごとに別の辞書を持つ
+    first = game.Player("A", 100, 10)
+    second = game.Player("B", 100, 10)
+
+    assert first.status is not second.status
+
+    first.apply_status("poison_turn", 3)
+    assert second.status == make_status()
+
+    # ---------------------------------------------------------------
+    # 2. 定義を1つ足すだけで、新しい状態異常が使える
+
+    assert new_key not in game.status_definitions, (
+        f"{new_key}がすでに定義されています。テスト用のキー名を変えてください"
+    )
+
+    new_definition = {
+        "label": "確認用",
+        "message": "確認中!",
+        "damage": 7,
+        "blocks_action": False,
+    }
+
+    with patch.dict(
+        game.status_definitions,
+        {new_key: new_definition},
+    ), patch.object(game.time, "sleep"):
+        character = game.Monster("新状態の敵", 100, 10, {})
+
+        # 枠が自動で作られる
+        assert character.status[new_key] == 0
+        assert character.status == make_status()
+
+        # 付与・表示・毎ターンの処理が、ゲーム側を変えずに動く
+        assert character.apply_status(new_key, 2) is True
+        assert character.get_status_text() == "(確認用2ターン)"
+
+        can_act = character.check_debuff()
+
+        assert can_act is True
+        assert character.hp == 93
+        assert character.status == make_status(**{new_key: 1})
+
+        # 解除もできる
+        assert character.clear_status(new_key) is True
+        assert character.status == make_status()
+
+    # ---------------------------------------------------------------
+    # 3. withを抜けると、定義は実行前と同じに戻る
+
+    assert new_key not in game.status_definitions
+    assert list(game.status_definitions) == keys_before
+
+    for key, definition in game.status_definitions.items():
+        assert definition is inner_before[key], key
+
+    # 新しく作るキャラクターには、追加した枠がない
+    character = game.Player("元に戻った後", 100, 10)
+
+    assert new_key not in character.status
+    assert list(character.status) == keys_before
+    assert character.status == make_status()
+# =======================================================================
 # テスト実行
 
 
@@ -2428,7 +2517,8 @@ def run_tests():
         test_create_battle_members_input_func,
         test_full_battle_with_scripted_input,
         test_hero_gain_exp,
-        test_distribute_exp
+        test_distribute_exp,
+        test_status_slots_follow_definitions
     ]
 
     # 全テストで待ち時間を無効化する。
