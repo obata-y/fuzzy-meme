@@ -2832,6 +2832,130 @@ def test_monster_use_skill():
         assert get_printed_lines(print_mock)[0] == f"<敵の{skill_name}！>", method_name
 
 # =======================================================================
+# ボス戦
+
+
+def test_boss_dragon():
+    # ---------------------------------------------------------------
+    # 1. 初期生成
+
+    bosses = game.create_boss_monsters()
+
+    assert isinstance(bosses, list)
+    assert len(bosses) == 1
+
+    dragon = bosses[0]
+
+    assert isinstance(dragon, game.Monster)
+    assert dragon.name == "ドラゴン"
+    assert dragon.hp == 250
+    assert dragon.maxhp == 250
+    assert dragon.attack_power == 22
+    assert dragon.speed == 12
+    assert dragon.exp == 60
+    assert dragon.attacks is game.dragon_attacks
+    assert dragon.target_selector is game.select_lowest_hp_ratio_target
+    assert dragon.attack_chooser is game.select_weighted_attack
+    assert dragon.status == make_status()
+
+    # 呼び出すたびに別のボスを作る
+    other = game.create_boss_monsters()[0]
+
+    assert other is not dragon
+    assert other.status is not dragon.status
+
+    # ---------------------------------------------------------------
+    # 2. 攻撃定義の並びと名前
+
+    assert list(game.dragon_attacks) == [10, 20, 30]
+    assert game.dragon_attacks[10]["name"] == "攻撃"
+    assert game.dragon_attacks[20]["name"] == "体当たり"
+    assert game.dragon_attacks[30]["name"] == "炎のブレス"
+    assert game.dragon_attacks[10]["function"] is game.Player.attack
+    assert game.dragon_attacks[20]["function"] is game.Monster.special_attack
+
+    # ---------------------------------------------------------------
+    # 3. HPが半分を切ると、炎のブレスの重みが0から8になる
+    # ケース名、ドラゴンのHP、期待する重み（ID10, 20, 30の順）
+    weight_cases = [
+        ("HP満タン", 250, [5, 5, 0]),
+        ("ちょうど半分", 125, [5, 5, 0]),
+        ("半分を切った", 124, [5, 5, 8]),
+        ("瀕死", 1, [5, 5, 8]),
+    ]
+
+    for label, hp, expected_weights in weight_cases:
+        dragon = game.create_boss_monsters()[0]
+        dragon.hp = hp
+
+        with patch.object(
+            game.random,
+            "choices",
+            wraps=game.random.choices,
+        ) as choices_mock:
+            attack_id = dragon.choose_attack()
+
+        assert attack_id in game.dragon_attacks, label
+        choices_mock.assert_called_once()
+
+        weights = choices_mock.call_args[1]["weights"]
+
+        assert weights == expected_weights, label
+
+    # 重みが0の間は、何度選んでも炎のブレスは出ない
+    dragon = game.create_boss_monsters()[0]
+
+    for _ in range(100):
+        assert dragon.choose_attack() != 30
+
+    # ---------------------------------------------------------------
+    # 4. 炎のブレスは、決まった引数でuse_skill()を呼ぶだけ
+
+    dragon = game.create_boss_monsters()[0]
+    target = game.Player("対象", 100, 10)
+
+    with patch.object(dragon, "use_skill") as skill_mock:
+        result = game.dragon_attacks[30]["function"](dragon, target)
+
+    assert result is skill_mock.return_value
+    skill_mock.assert_called_once_with(
+        target, "炎のブレス", 1.4, "burn_turn", 3, 0.5
+    )
+    assert target.hp == 100
+
+    # ---------------------------------------------------------------
+    # 5. act()から炎のブレスを使うと、ダメージと火傷が入る
+
+    dragon = game.Monster(
+        "ドラゴン",
+        250,
+        22,
+        game.dragon_attacks,
+        attack_chooser=lambda attacks, hp_ratio: 30,
+    )
+    target = game.Player("対象", 100, 10)
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ) as damage_mock, patch.object(
+        game.random,
+        "random",
+        return_value=0.0,
+    ), patch.object(game.time, "sleep"), patch(
+        "builtins.print"
+    ) as print_mock:
+        dragon.act(target)
+
+    damage_mock.assert_called_once_with(22)
+
+    # 10 × 1.4 = 14ダメージ
+    assert target.hp == 86
+    assert target.status == make_status(burn_turn=3)
+    assert get_printed_lines(print_mock)[0] == "<ドラゴンの炎のブレス！>"
+
+# =======================================================================
 # テスト実行
 
 
@@ -2878,7 +3002,8 @@ def run_tests():
         test_distribute_exp,
         test_status_slots_follow_definitions,
         test_burn_status,
-        test_monster_use_skill
+        test_monster_use_skill,
+        test_boss_dragon
     ]
 
     # 全テストで待ち時間を無効化する。

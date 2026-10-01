@@ -644,6 +644,20 @@ def create_battle_members(input_func=None) -> tuple[list, list]:
     return players, monsters
 
 
+def create_boss_monsters() -> list:
+    dragon = Monster(
+        "ドラゴン",
+        250,
+        22,
+        dragon_attacks,
+        12,
+        select_lowest_hp_ratio_target,
+        exp=60
+    )
+
+    return [dragon]
+
+
 def calculation_damage(attack_power) -> int:
     fluctuation = 25
 
@@ -732,10 +746,12 @@ def get_turn_order(players, monsters):
 
 
 def select_random_target(candidates):
+    # ランダムに対象を選ぶ選択方法
     return random.choice(candidates)
 
 
 def select_lowest_hp_ratio_target(candidates):
+    # HPの低い対象を選ぶ選択方法
     return min(
         candidates,
         key=lambda character: character.hp / character.maxhp,
@@ -743,7 +759,7 @@ def select_lowest_hp_ratio_target(candidates):
 
 
 def select_weighted_attack(attacks, hp_ratio) -> int:
-    # 攻撃idを返す
+    # weightに準じて攻撃idを返す
     return random.choices(
         list(attacks.keys()),
         weights=[
@@ -893,6 +909,26 @@ gobrin_attacks = {
     },
 }
 
+dragon_attacks = {
+    10: {
+        "name": "攻撃",
+        "function": Player.attack,
+        "weight": lambda hp_ratio: 5,
+    },
+    20: {
+        "name": "体当たり",
+        "function": Monster.special_attack,
+        "weight": lambda hp_ratio: 5,
+    },
+    30: {
+        "name": "炎のブレス",
+        "function": lambda monster, target: monster.use_skill(
+            target, "炎のブレス", 1.4, "burn_turn", 3, 0.5
+        ),
+        "weight": lambda hp_ratio: 0 if hp_ratio >= 0.5 else 8
+    },
+}
+
 status_definitions = {
     "paralysis_turn": {
         "label": "麻痺",
@@ -949,6 +985,21 @@ def main():
         distribute_exp(players, monsters)
         time.sleep(1)
         print("次の冒険へ進みます...")
+        time.sleep(1)
+        print("<ドラゴンが現れた！>")
+        time.sleep(1)
+        dragons = create_boss_monsters()
+        win = battle(players, dragons)
+
+        if win == "players":
+            distribute_exp(players, dragons)
+            time.sleep(1)
+            print("ゲームクリア！")
+        elif win == "monsters":
+            print("ゲームオーバー")
+        elif win == "draw":
+            print("戦闘は引き分けでした")
+
     elif win == "monsters":
         print("ゲームオーバー")
     elif win == "draw":
