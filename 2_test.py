@@ -2473,6 +2473,225 @@ def test_status_slots_follow_definitions():
     assert new_key not in character.status
     assert list(character.status) == keys_before
     assert character.status == make_status()
+
+
+# =======================================================================
+# 火傷
+
+
+def test_burn_status():
+    # ---------------------------------------------------------------
+    # 1. 定義データ
+
+    burn = game.status_definitions["burn_turn"]
+
+    assert burn["label"] == "火傷"
+    assert burn["damage"] == 8
+    assert burn["blocks_action"] is False
+    assert burn["attack_multiplier"] == 0.5
+
+    assert list(game.status_definitions) == [
+        "paralysis_turn",
+        "poison_turn",
+        "burn_turn",
+    ]
+
+    # 倍率は任意の項目なので、麻痺と毒には書かない
+    for key in ("paralysis_turn", "poison_turn"):
+        assert "attack_multiplier" not in game.status_definitions[key], key
+
+    # 新しく作るキャラクターには火傷の枠がある
+    assert game.Player("新規", 100, 10).status["burn_turn"] == 0
+
+    # ---------------------------------------------------------------
+    # 2. get_attack_power()：火傷の間だけ攻撃力が半分になる
+    # ケース名、状態異常、期待する攻撃力（元の攻撃力は20）
+    cases = [
+        ("状態異常なし", {}, 20),
+        ("火傷", {"burn_turn": 2}, 10),
+        ("火傷が残り0", {"burn_turn": 0}, 20),
+        ("毒だけ", {"poison_turn": 3}, 20),
+        (
+            "火傷と毒と麻痺",
+            {"burn_turn": 1, "poison_turn": 3, "paralysis_turn": 1},
+            10,
+        ),
+    ]
+
+    for label, turns, expected in cases:
+        characters = [
+            game.Player("基本キャラ", 100, 20),
+            game.Hero("勇者", 100, 10, 20, game.Inventory({})),
+            game.Monster("敵", 100, 20, {}),
+        ]
+
+        for character in characters:
+            context = f"{type(character).__name__}／{label}"
+            character.status = make_status(**turns)
+            status_before = character.status.copy()
+
+            result = character.get_attack_power()
+
+            assert result == expected, context
+
+            # 元の能力値と状態は変えない
+            assert character.attack_power == 20, context
+            assert character.status == status_before, context
+
+    # ---------------------------------------------------------------
+    # 3. 倍率は定義データから読む
+
+    character = game.Player("調整テスト", 100, 20)
+    character.status["burn_turn"] = 1
+
+    with patch.dict(
+        game.status_definitions["burn_turn"],
+        {"attack_multiplier": 0.25},
+    ):
+        assert character.get_attack_power() == 5
+
+    assert character.get_attack_power() == 10
+
+    # 倍率の項目がない定義は、攻撃力を変えない
+    with patch.dict(
+        game.status_definitions,
+        {
+            "slot_check_turn": {
+                "label": "確認用",
+                "message": "確認中!",
+                "damage": 1,
+                "blocks_action": False,
+            },
+        },
+    ):
+        character = game.Player("倍率なし", 100, 20)
+        character.status["slot_check_turn"] = 2
+
+        assert character.get_attack_power() == 20
+
+    # ---------------------------------------------------------------
+    # 4. 敵の攻撃は、下がった攻撃力でダメージを計算する
+
+    for method_name in (
+        "attack",
+        "special_attack",
+        "poison_attack",
+        "paralysis_attack",
+    ):
+        monster = game.Monster("火傷の敵", 100, 20, {})
+        monster.status["burn_turn"] = 2
+        target = game.Player("攻撃対象", 100, 10)
+
+        with patch.object(
+            game,
+            "calculation_damage",
+            return_value=10,
+        ) as damage_mock, patch.object(
+            game.random,
+            "random",
+            return_value=0.99,
+        ), patch.object(game.time, "sleep"):
+            getattr(monster, method_name)(target)
+
+        assert damage_mock.call_args_list == [((10,),)], method_name
+        assert monster.attack_power == 20, method_name
+
+    # 勇者の魔法も同じ
+    for method_name in ("fire_magic", "poison_magic"):
+        caster = game.Hero("火傷の勇者", 200, 30, 20, game.Inventory({}))
+        caster.status["burn_turn"] = 2
+        target = game.Monster("対象", 50, 10, {})
+
+        with patch.object(
+            game,
+            "calculation_damage",
+            return_value=10,
+        ) as damage_mock, patch.object(
+            game.random,
+            "random",
+            return_value=0.99,
+        ), patch.object(game.time, "sleep"):
+            success = getattr(caster, method_name)(target)
+
+        assert success is True, method_name
+        assert damage_mock.call_args_list == [((10,),)], method_name
+
+    # ---------------------------------------------------------------
+    # 5. ファイアは30%で火傷を付与する
+    # ケース名、対象HP、乱数、期待する火傷ターン、inflict_statusを呼ぶか
+    fire_cases = [
+        ("付与する", 50, 0.0, 3, True),
+        ("境界の0.3は付与する", 50, 0.3, 3, True),
+        ("確率で外れる", 50, 0.99, 0, False),
+        ("倒したら付与しない", 5, 0.0, 0, False),
+    ]
+
+    for label, target_hp, random_value, expected_burn, should_inflict in fire_cases:
+        caster = game.Hero("使用者", 200, 30, 20, game.Inventory({}))
+        target = game.Monster("対象", 50, 10, {})
+        target.hp = target_hp
+
+        with patch.object(
+            game,
+            "calculation_damage",
+            return_value=10,
+        ), patch.object(
+            game.random,
+            "random",
+            return_value=random_value,
+        ), patch.object(game.time, "sleep"), patch.object(
+            target,
+            "inflict_status",
+            wraps=target.inflict_status,
+        ) as inflict_mock:
+            success = caster.fire_magic(target)
+
+        assert success is True, label
+        assert caster.mp == 20, label
+        assert target.hp == max(target_hp - 13, 0), label
+        assert target.status["burn_turn"] == expected_burn, label
+
+        if should_inflict:
+            inflict_mock.assert_called_once_with("burn_turn", 3)
+        else:
+            inflict_mock.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # 6. 毎ターンの処理：8ダメージ、行動はできる
+
+    with patch.object(game.time, "sleep"):
+        monster = game.Monster("火傷の敵", 100, 10, {})
+        monster.status["burn_turn"] = 3
+
+        can_act = monster.check_debuff()
+
+        assert can_act is True
+        assert monster.hp == 92
+        assert monster.status == make_status(burn_turn=2)
+
+        # 火傷のダメージで倒れる
+        monster = game.Monster("瀕死の敵", 100, 10, {})
+        monster.hp = 8
+        monster.status["burn_turn"] = 3
+
+        can_act = monster.check_debuff()
+
+        assert can_act is False
+        assert monster.hp == 0
+
+    # ---------------------------------------------------------------
+    # 7. キュアでは火傷を治せない
+
+    caster = game.Hero("使用者", 200, 30, 20, game.Inventory({}))
+    target = game.Hero("火傷の味方", 200, 10, 20, game.Inventory({}))
+    target.status["burn_turn"] = 2
+
+    success = caster.cure_magic(target)
+
+    assert success is False
+    assert caster.mp == 30
+    assert target.status == make_status(burn_turn=2)
+
 # =======================================================================
 # テスト実行
 
@@ -2518,7 +2737,8 @@ def run_tests():
         test_full_battle_with_scripted_input,
         test_hero_gain_exp,
         test_distribute_exp,
-        test_status_slots_follow_definitions
+        test_status_slots_follow_definitions,
+        test_burn_status
     ]
 
     # 全テストで待ち時間を無効化する。

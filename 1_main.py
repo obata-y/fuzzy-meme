@@ -24,7 +24,7 @@ class Player:
     def attack(self, target):
         print(f"{self.name}の攻撃！")
 
-        damage = calculation_damage(self.attack_power)
+        damage = calculation_damage(self.get_attack_power())
         target.take_damage(damage)
 
     def defend(self):
@@ -33,6 +33,16 @@ class Player:
 
     def start_turn(self):
         self.is_defending = False
+
+    def get_attack_power(self) -> int:
+        # 状態から攻撃倍率を求める
+        multiplier = 1
+
+        for key, definition in status_definitions.items():
+            if self.status[key] > 0:
+                multiplier *= definition.get('attack_multiplier', 1)
+
+        return round(self.attack_power * multiplier)
 
     def take_damage(self, damage):
         if self.is_defending:
@@ -83,9 +93,9 @@ class Player:
 
         status_text = ""
 
-        for definition_key, definition in status_definitions.items():
-            if self.status[definition_key] > 0:
-                status_text += f"({definition['label']}{self.status[definition_key]}ターン)"
+        for key, definition in status_definitions.items():
+            if self.status[key] > 0:
+                status_text += f"({definition['label']}{self.status[key]}ターン)"
 
         return status_text
 
@@ -384,9 +394,13 @@ class Hero(Player):
             f"(残MP{self.mp}/{self.maxmp})>"
         )
 
-        damage = calculation_damage(self.attack_power)
+        damage = calculation_damage(self.get_attack_power())
         damage = round(damage * 1.3)
         target.take_damage(damage)
+
+        if target.hp > 0:
+            if random.random() <= 0.3:
+                target.inflict_status("burn_turn", 3)
 
         return True
 
@@ -407,7 +421,7 @@ class Hero(Player):
             f"(残MP{self.mp}/{self.maxmp})>"
         )
 
-        damage = calculation_damage(self.attack_power)
+        damage = calculation_damage(self.get_attack_power())
         damage = round(damage * 0.5)
         target.take_damage(damage)
 
@@ -497,14 +511,14 @@ class Monster(Player):
     def special_attack(self, target):
         print(f"<{self.name}の体当たり！>")
 
-        damage = calculation_damage(self.attack_power)
+        damage = calculation_damage(self.get_attack_power())
         damage = round(damage * 1.1)
         target.take_damage(damage)
 
     def poison_attack(self, target):
         print(f"<{self.name}の毒液！>")
 
-        damage = calculation_damage(self.attack_power)
+        damage = calculation_damage(self.get_attack_power())
         damage = round(damage * 0.7)
         target.take_damage(damage)
 
@@ -514,7 +528,7 @@ class Monster(Player):
     def paralysis_attack(self, target):
         print(f"{self.name}の電撃！")
 
-        damage = calculation_damage(self.attack_power)
+        damage = calculation_damage(self.get_attack_power())
         damage = round(damage * 0.7)
         target.take_damage(damage)
 
@@ -899,11 +913,12 @@ status_definitions = {
         "damage": 15,
         "blocks_action": False,
     },
-    "test_turn": {
-        "label": "テスト",
-        "message": "テスト中!",
-        "damage": 1,
+    "burn_turn": {
+        "label": "火傷",
+        "message": "火傷が痛む!",
+        "damage": 8,
         "blocks_action": False,
+        "attack_multiplier": 0.5
     },
 }
 
