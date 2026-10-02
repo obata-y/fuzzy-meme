@@ -367,10 +367,16 @@ class Hero(Player):
             else:
                 raise ValueError("魔法の対象設定が不正です")
 
-            success, target_id = self.choose_target(
-                candidates,
-                selected_magic.get("target_state", "alive"),
-            )
+            target_state = selected_magic.get("target_state", "alive")
+
+            if not any(
+                matches_target_state(candidate, target_state)
+                for candidate in candidates
+            ):
+                print("<対象がいません>")
+                continue
+
+            success, target_id = self.choose_target(candidates, target_state)
 
             if not success:
                 continue
@@ -409,15 +415,13 @@ class Hero(Player):
                 print("<対象が存在しません>")
                 continue
 
-            if target_state == "alive":
-                if targets[selected_id].hp <= 0:
+            if not matches_target_state(targets[selected_id], target_state):
+                if target_state == "alive":
                     print("<戦闘不能の対象は選べません>")
-                    continue
-
-            if target_state == "fallen":
-                if targets[selected_id].hp > 0:
+                else:
                     print("<戦闘不能ではない対象は選べません>")
-                    continue
+
+                continue
 
             print()
             return True, selected_id
@@ -914,6 +918,17 @@ def select_weighted_attack(attacks, hp_ratio) -> int:
         ],
         k=1,
     )[0]
+
+
+def matches_target_state(character, target_state) -> bool:
+    if target_state == "alive":
+        return character.hp > 0
+
+    if target_state == "fallen":
+        return character.hp <= 0
+
+    raise ValueError("対象の状態設定が不正です")
+
 
 # =======================================================================
 # 戦闘進行

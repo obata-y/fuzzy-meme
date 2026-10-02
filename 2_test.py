@@ -4162,6 +4162,171 @@ def test_stage_factories():
     assert "ゲームクリア！" in joined_output(print_mock)
 
 # =======================================================================
+# 対象の状態の判定
+
+
+def test_target_state_check():
+    def joined_output(print_mock):
+        return " ".join(
+            str(arg)
+            for call in print_mock.call_args_list
+            for arg in call[0]
+        )
+
+    def get_prompts(input_mock):
+        # 入力を求めたときのメッセージを、順番に取り出す
+        return [call[0][0] for call in input_mock.call_args_list]
+
+    # ---------------------------------------------------------------
+    # 1. matches_target_state()
+
+    alive = game.Player("生存", 100, 10)
+    fallen = game.Player("戦闘不能", 100, 10)
+    fallen.hp = 0
+
+    # キャラクター、状態、期待する結果
+    cases = [
+        (alive, "alive", True),
+        (alive, "fallen", False),
+        (fallen, "alive", False),
+        (fallen, "fallen", True),
+    ]
+
+    for character, target_state, expected in cases:
+        result = game.matches_target_state(character, target_state)
+        assert result is expected, (character.name, target_state)
+
+    try:
+        game.matches_target_state(alive, "unknown")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("不正な状態設定でValueErrorが出ていません")
+
+    # ---------------------------------------------------------------
+    # 2. choose_target()は、判定をmatches_target_state()に任せる
+
+    # 2-1. "alive"：倒れている対象を選ぶと弾かれ、生存者を選び直せる
+    input_mock = Mock(side_effect=[0, 1])
+    chooser = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    targets = [fallen, alive]
+
+    with patch.object(
+        game,
+        "matches_target_state",
+        wraps=game.matches_target_state,
+    ) as match_mock, patch("builtins.print") as print_mock:
+        success, selected_id = chooser.choose_target(targets)
+
+    assert success is True
+    assert selected_id == 1
+    assert "<戦闘不能の対象は選べません>" in joined_output(print_mock)
+    assert match_mock.call_count == 2
+    assert match_mock.call_args_list[0][0] == (fallen, "alive")
+    assert match_mock.call_args_list[1][0] == (alive, "alive")
+
+    # 2-2. "fallen"：生存者を選ぶと弾かれ、倒れている対象を選び直せる
+    input_mock = Mock(side_effect=[0, 1])
+    chooser = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    targets = [alive, fallen]
+
+    with patch.object(
+        game,
+        "matches_target_state",
+        wraps=game.matches_target_state,
+    ) as match_mock, patch("builtins.print") as print_mock:
+        success, selected_id = chooser.choose_target(targets, "fallen")
+
+    assert success is True
+    assert selected_id == 1
+    assert "<戦闘不能ではない対象は選べません>" in joined_output(print_mock)
+    assert match_mock.call_count == 2
+    assert match_mock.call_args_list[0][0] == (alive, "fallen")
+    assert match_mock.call_args_list[1][0] == (fallen, "fallen")
+
+    # ---------------------------------------------------------------
+    # 3. choose_magic_action()：対象がいなければ、一覧を出さずに魔法の選択へ戻る
+
+    # 3-1. 倒れた仲間がいないときのリザレクト
+    # 入力：リザレクト 6 → 対象がいない → -1で閉じる
+    input_mock = Mock(side_effect=[6, -1])
+    hero = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+
+    with patch("builtins.print") as print_mock:
+        success = hero.choose_magic_action(
+            [],
+            [hero, warrior],
+            allowed_sides=("ally",),
+        )
+
+    assert success is False
+    assert hero.mp == 30
+    assert warrior.hp == 150
+    assert "<対象がいません>" in joined_output(print_mock)
+
+    # 対象の選択は一度も求めていない
+    assert get_prompts(input_mock) == [
+        "魔法を選択してください：",
+        "魔法を選択してください：",
+    ]
+
+    # 3-2. 倒れた仲間がいれば、今までどおりリザレクトできる
+    # 入力：リザレクト 6、対象 1（戦士）
+    input_mock = Mock(side_effect=[6, 1])
+    hero = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    warrior.hp = 0
+
+    with patch.object(game.time, "sleep"), patch(
+        "builtins.print"
+    ) as print_mock:
+        success = hero.choose_magic_action(
+            [],
+            [hero, warrior],
+            allowed_sides=("ally",),
+        )
+
+    assert success is True
+    assert hero.mp == 15
+
+    # round(150 × 0.5) = 75
+    assert warrior.hp == 75
+    assert "<対象がいません>" not in joined_output(print_mock)
+    assert get_prompts(input_mock) == [
+        "魔法を選択してください：",
+        "対象を選択してください：",
+    ]
+
+    # 3-3. 敵が全員倒れているときのファイア
+    # 入力：ファイア 2 → 対象がいない → -1で閉じる
+    input_mock = Mock(side_effect=[2, -1])
+    hero = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    monster = game.Monster("敵", 50, 10, {})
+    monster.hp = 0
+
+    with patch("builtins.print") as print_mock:
+        success = hero.choose_magic_action([monster], [hero])
+
+    assert success is False
+    assert hero.mp == 30
+    assert "<対象がいません>" in joined_output(print_mock)
+    assert get_prompts(input_mock) == [
+        "魔法を選択してください：",
+        "魔法を選択してください：",
+    ]
+
+# =======================================================================
 # テスト実行
 
 
@@ -4216,7 +4381,8 @@ def run_tests():
         test_revive_menu,
         test_camp,
         test_camp_order,
-        test_stage_factories
+        test_stage_factories,
+        test_target_state_check
     ]
 
     # 全テストで待ち時間を無効化する。
