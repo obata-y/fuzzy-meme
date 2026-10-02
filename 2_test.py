@@ -2990,6 +2990,7 @@ def test_run_adventure():
                 ("battle", 0),
                 ("exp", 0),
                 ("rest",),
+                ("camp",),
                 ("print", "次の冒険へ進みます..."),
                 ("print", "<第2の敵が現れた！>"),
                 ("battle", 1),
@@ -3023,6 +3024,7 @@ def test_run_adventure():
                 ("battle", 0),
                 ("exp", 0),
                 ("rest",),
+                ("camp",),
                 ("print", "次の冒険へ進みます..."),
                 ("print", "<第2の敵が現れた！>"),
                 ("battle", 1),
@@ -3037,11 +3039,13 @@ def test_run_adventure():
                 ("battle", 0),
                 ("exp", 0),
                 ("rest",),
+                ("camp",),
                 ("print", "次の冒険へ進みます..."),
                 ("print", "<第2の敵が現れた！>"),
                 ("battle", 1),
                 ("exp", 1),
                 ("rest",),
+                ("camp",),
                 ("print", "次の冒険へ進みます..."),
                 ("print", "<第3の敵が現れた！>"),
                 ("battle", 2),
@@ -3098,6 +3102,11 @@ def test_run_adventure():
 
             events.append(("rest",))
 
+        def fake_camp_party(received_players):
+            assert received_players is players, label
+
+            events.append(("camp",))
+
         def fake_print(*args, **kwargs):
             text = " ".join(str(arg) for arg in args)
 
@@ -3117,6 +3126,10 @@ def test_run_adventure():
             game,
             "rest_party",
             side_effect=fake_rest_party,
+        ), patch.object(
+            game,
+            "camp_party",
+            side_effect=fake_camp_party,
         ), patch(
             "builtins.print",
             side_effect=fake_print,
@@ -3657,6 +3670,199 @@ def test_revive_menu():
     assert order == [hero, monster, warrior]
 
 # =======================================================================
+# 出発の準備
+
+
+def test_camp():
+    def joined_output(print_mock):
+        return " ".join(
+            str(arg)
+            for call in print_mock.call_args_list
+            for arg in call[0]
+        )
+
+    def make_potion_inventory():
+        return game.Inventory({
+            0: {
+                "key": "potion",
+                "name": "回復薬",
+                "heal": 30,
+                "count": 1,
+            },
+        })
+
+    # ---------------------------------------------------------------
+    # 1. choose_magic_action()：表示する魔法を絞り込める
+
+    # 1-1. 味方向けだけに絞ると、ファイアは表示されず選べない
+    # 入力：魔法ID 2（ファイア）、-1で閉じる
+    input_mock = Mock(side_effect=[2, -1])
+    hero = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    monster = game.Monster("敵", 50, 10, {})
+
+    with patch("builtins.print") as print_mock:
+        success = hero.choose_magic_action(
+            [monster],
+            [hero],
+            allowed_sides=("ally",),
+        )
+
+    output = joined_output(print_mock)
+
+    assert success is False
+    assert hero.mp == 30
+    assert monster.hp == 50
+    assert input_mock.call_count == 2
+    assert "ファイア(MP10)" not in output
+    assert "ポイズン(MP6)" not in output
+    assert "ヒール(MP8)" in output
+    assert "<魔法が存在しません>" in output
+
+    # 1-2. 初期値では、今までどおり敵向けの魔法も使える
+    # 入力：魔法ID 2（ファイア）、対象 0
+    input_mock = Mock(side_effect=[2, 0])
+    hero = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    monster = game.Monster("敵", 50, 10, {})
+
+    with patch.object(
+        game,
+        "calculation_damage",
+        return_value=10,
+    ), patch.object(
+        game.random,
+        "random",
+        return_value=0.99,
+    ), patch.object(game.time, "sleep"), patch("builtins.print"):
+        success = hero.choose_magic_action([monster], [hero])
+
+    assert success is True
+    assert hero.mp == 20
+
+    # 10 × 1.3 = 13ダメージ
+    assert monster.hp == 37
+
+    # ---------------------------------------------------------------
+    # 2. choose_camp_action()
+    # ケース名、入力の順番、期待する戻り値
+    # 勇者はHP100/200、MP30/30、回復薬1個から始まる
+    cases = [
+        ("すぐに出発", [0], False),
+        ("不正な入力の後に出発", [9, 0], False),
+        ("回復薬を使う", [1, 0], True),
+        ("アイテムから戻って出発", [1, -1, 0], False),
+        ("ヒールを使う", [2, 4, 0], True),
+        ("ファイアは選べず、戻って出発", [2, 2, -1, 0], False),
+    ]
+
+    for label, inputs, expected_result in cases:
+        input_mock = Mock(side_effect=list(inputs))
+        hero = game.Hero(
+            "勇者",
+            200,
+            30,
+            20,
+            make_potion_inventory(),
+            input_func=input_mock,
+        )
+        hero.hp = 100
+
+        with patch.object(game.time, "sleep"), patch(
+            "builtins.print"
+        ) as print_mock:
+            result = hero.choose_camp_action([hero])
+
+        assert result is expected_result, label
+
+        # 用意した入力をすべて使い切っている
+        assert input_mock.call_count == len(inputs), label
+
+        if label == "不正な入力の後に出発":
+            assert "選択肢から選んでください" in joined_output(print_mock), label
+
+        if label == "回復薬を使う":
+            assert hero.hp == 130, label
+            assert hero.inventory.items[0]["count"] == 0, label
+        elif label == "ヒールを使う":
+            assert hero.hp == 150, label
+            assert hero.mp == 22, label
+        else:
+            # 何も使っていない
+            assert hero.hp == 100, label
+            assert hero.mp == 30, label
+            assert hero.inventory.items[0]["count"] == 1, label
+
+    # 魔法メニューは、敵なし・味方向けだけで呼ばれる
+    input_mock = Mock(side_effect=[2, -1, 0])
+    hero = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    allies = [hero]
+
+    with patch.object(
+        hero,
+        "choose_magic_action",
+        wraps=hero.choose_magic_action,
+    ) as magic_mock, patch("builtins.print"):
+        hero.choose_camp_action(allies)
+
+    magic_mock.assert_called_once_with([], allies, allowed_sides=("ally",))
+
+    # ---------------------------------------------------------------
+    # 3. camp_party()
+
+    # 3-1. 勇者がリザレクトで戦士を生き返らせ、生き返った戦士も準備できる
+    # 勇者の入力：魔法 2、リザレクト 6、対象 1、出発 0
+    # 戦士の入力：出発 0
+    hero_input = Mock(side_effect=[2, 6, 1, 0])
+    warrior_input = Mock(side_effect=[0])
+
+    hero = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=hero_input
+    )
+    warrior = game.Hero(
+        "戦士", 150, 0, 40, game.Inventory({}), input_func=warrior_input
+    )
+    warrior.hp = 0
+
+    with patch.object(game.time, "sleep"), patch(
+        "builtins.print"
+    ) as print_mock:
+        result = game.camp_party([hero, warrior])
+
+    assert result is None
+    assert get_printed_lines(print_mock)[0] == "<出発の準備をする>"
+
+    assert hero.mp == 15, f"actual_mp = {hero.mp}"
+
+    # round(150 × 0.5) = 75
+    assert warrior.hp == 75
+    assert hero_input.call_count == 4
+    assert warrior_input.call_count == 1
+
+    # 3-2. 戦闘不能の仲間には入力を求めない
+    fallen_input = Mock()
+    hero_input = Mock(side_effect=[0])
+
+    fallen = game.Hero(
+        "戦士", 150, 0, 40, game.Inventory({}), input_func=fallen_input
+    )
+    fallen.hp = 0
+    hero = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=hero_input
+    )
+
+    with patch.object(game.time, "sleep"), patch("builtins.print"):
+        game.camp_party([fallen, hero])
+
+    fallen_input.assert_not_called()
+    assert hero_input.call_count == 1
+    assert fallen.hp == 0
+
+# =======================================================================
 # テスト実行
 
 
@@ -3708,7 +3914,8 @@ def run_tests():
         test_run_adventure,
         test_hero_rest,
         test_revive,
-        test_revive_menu
+        test_revive_menu,
+        test_camp
     ]
 
     # 全テストで待ち時間を無効化する。

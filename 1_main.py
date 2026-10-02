@@ -309,8 +309,35 @@ class Hero(Player):
             else:
                 print("選択肢から選んでください")
 
-    def choose_magic_action(self, targets, allies) -> bool:
-        magic_dict = self.get_magic_action()
+    def choose_camp_action(self, allies) -> bool:
+        # 行動したら True、準備を終えるなら False
+        while True:
+            action = self.input_func("準備を選んでください\n[0:出発 1:アイテム 2:魔法]：")
+            print()
+
+            if action == 0:
+                return False
+
+            elif action == 1:
+                if not self.choose_item():
+                    continue
+
+                return True
+
+            elif action == 2:
+                if not self.choose_magic_action([], allies, allowed_sides=('ally',)):
+                    continue
+
+                return True
+
+            else:
+                print("選択肢から選んでください")
+
+    def choose_magic_action(self, targets, allies, allowed_sides=("enemy", "ally")) -> bool:
+        magic_dict = {
+            key: value for key, value in self.get_magic_action().items()
+            if value['target_side'] in allowed_sides
+        }
 
         while True:
             for magic_id, data in magic_dict.items():
@@ -802,6 +829,23 @@ def rest_party(players) -> None:
         player.rest()
 
 
+def camp_party(players) -> None:
+    time.sleep(1)
+    print("<出発の準備をする>")
+
+    for player in players:
+        if player.hp <= 0:
+            continue
+
+        player.show_status()
+
+        while True:
+            acted = player.choose_camp_action(players)
+
+            if not acted:
+                break
+
+
 def input_int(message="数字を入力してください：") -> int:
     while True:
         try:
@@ -863,9 +907,10 @@ def run_adventure(players, stages) -> str:
 
         distribute_exp(players, stage["monsters"])
 
-        # 次のステージがある場合だけ、休息して表示する
+        # 次のステージがある場合だけ、休息と準備をしてから出発する
         if index < len(stages) - 1:
             rest_party(players)
+            camp_party(players)
             time.sleep(1)
             print("次の冒険へ進みます...")
 
