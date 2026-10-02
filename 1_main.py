@@ -139,6 +139,19 @@ class Player:
 
         return self.hp - hp_before
 
+    def revive(self, healpt) -> bool:
+        if self.hp > 0 or healpt <= 0:
+            return False
+
+        self.hp = min(healpt, self.maxhp)
+
+        self.is_defending = False
+
+        for key in status_definitions.keys():
+            self.clear_status(key)
+
+        return True
+
     def check_down(self):
         if self.hp <= 0:
             time.sleep(1)
@@ -327,7 +340,10 @@ class Hero(Player):
             else:
                 raise ValueError("魔法の対象設定が不正です")
 
-            success, target_id = self.choose_target(candidates)
+            success, target_id = self.choose_target(
+                candidates,
+                selected_magic.get("target_state", "alive"),
+            )
 
             if not success:
                 continue
@@ -343,7 +359,10 @@ class Hero(Player):
 
             return True
 
-    def choose_target(self, targets):
+    def choose_target(self, targets, target_state="alive"):
+        if target_state not in ("alive", "fallen"):
+            raise ValueError("対象の状態設定が不正です")
+
         while True:
             for index, target in enumerate(targets):
                 print(
@@ -363,9 +382,15 @@ class Hero(Player):
                 print("<対象が存在しません>")
                 continue
 
-            if targets[selected_id].hp <= 0:
-                print("<戦闘不能の対象は選べません>")
-                continue
+            if target_state == "alive":
+                if targets[selected_id].hp <= 0:
+                    print("<戦闘不能の対象は選べません>")
+                    continue
+
+            if target_state == "fallen":
+                if targets[selected_id].hp > 0:
+                    print("<戦闘不能ではない対象は選べません>")
+                    continue
 
             print()
             return True, selected_id
@@ -395,6 +420,13 @@ class Hero(Player):
                 "target_side": "ally",
                 "function": self.cure_magic,
                 "mpcost": magic_mpcosts["cure"],
+            },
+            6: {
+                "label": f"リザレクト(MP{magic_mpcosts['revive']})",
+                "target_side": "ally",
+                "function": self.revive_magic,
+                "mpcost": magic_mpcosts["revive"],
+                "target_state": "fallen"
             },
         }
 
@@ -495,6 +527,26 @@ class Hero(Player):
             f"<{self.name}のキュアが発動！>\n"
             f"<{target.name}の毒が治癒した！>"
         )
+        return True
+
+    def revive_magic(self, target) -> bool:
+        mpcost = magic_mpcosts["revive"]
+
+        if target.hp > 0:
+            print("<対象は戦闘不能ではありません>")
+            return False
+
+        if not self.use_mp(mpcost):
+            print("<MPが足りません！>")
+            return False
+
+        target.revive(round(target.maxhp * 0.5))
+
+        print(
+            f"<{self.name}のリザレクトが発動！>\n"
+            f"<{target.name}は生き返った！(残HP{target.hp}/{target.maxhp})>"
+        )
+
         return True
 
 class Monster(Player):
@@ -1002,7 +1054,8 @@ magic_mpcosts = {
     "fire": 10,
     "poison":6,
     "heal":8,
-    "cure": 5
+    "cure": 5,
+    "revive": 15
 }
 
 level_settings = {

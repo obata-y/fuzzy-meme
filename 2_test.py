@@ -1241,6 +1241,7 @@ def test_magic_mpcosts():
         "poison": 6,
         "heal": 8,
         "cure": 5,
+        "revive": 15,
     }
 
     # 魔法ID、コストのキー、ラベルの魔法名
@@ -1249,6 +1250,7 @@ def test_magic_mpcosts():
         (3, "poison", "ポイズン"),
         (4, "heal", "ヒール"),
         (5, "cure", "キュア"),
+        (6, "revive", "リザレクト"),
     ]
 
     # ---------------------------------------------------------------
@@ -3284,6 +3286,377 @@ def test_hero_rest():
     assert get_printed_lines(print_mock)[0] == "<一行は休息をとった>"
 
 # =======================================================================
+# 蘇生
+
+
+def test_revive():
+    # ---------------------------------------------------------------
+    # 1. 定義データ
+
+    assert game.magic_mpcosts["revive"] == 15
+
+    # ---------------------------------------------------------------
+    # 2. revive()：戦闘不能から生き返り、防御と状態異常が解除される
+
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    warrior.hp = 0
+    warrior.is_defending = True
+    warrior.status = make_status(poison_turn=2, burn_turn=1)
+    status_object = warrior.status
+
+    with patch("builtins.print") as print_mock:
+        result = warrior.revive(75)
+
+    assert result is True
+    assert warrior.hp == 75
+    assert warrior.is_defending is False
+    assert warrior.status == make_status()
+
+    # 辞書を作り直さず、中身だけを変える
+    assert warrior.status is status_object
+
+    # 表示は呼び出す側が担当する
+    print_mock.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # 3. revive()：成功・失敗のケース
+    # ケース名、現在のHP、回復量、期待する戻り値、期待するHP（最大HPは150）
+    cases = [
+        ("通常", 0, 75, True, 75),
+        ("最大HPで止まる", 0, 999, True, 150),
+        ("生存している", 50, 75, False, 50),
+        ("回復量0", 0, 0, False, 0),
+        ("回復量が負", 0, -10, False, 0),
+    ]
+
+    for label, hp, healpt, expected_result, expected_hp in cases:
+        characters = [
+            game.Player("基本キャラ", 150, 10),
+            game.Hero("戦士", 150, 0, 40, game.Inventory({})),
+            game.Monster("敵", 150, 10, {}),
+        ]
+
+        for character in characters:
+            context = f"{type(character).__name__}／{label}"
+            character.hp = hp
+            character.is_defending = True
+            character.status["poison_turn"] = 2
+            status_before = character.status.copy()
+
+            result = character.revive(healpt)
+
+            assert result is expected_result, context
+            assert character.hp == expected_hp, context
+
+            if expected_result:
+                assert character.is_defending is False, context
+                assert character.status == make_status(), context
+            else:
+                # 失敗したときは何も変えない
+                assert character.is_defending is True, context
+                assert character.status == status_before, context
+
+    # ---------------------------------------------------------------
+    # 4. revive_magic()：成功
+
+    caster = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+    target = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    target.hp = 0
+    target.status["burn_turn"] = 2
+
+    with patch.object(
+        target,
+        "revive",
+        wraps=target.revive,
+    ) as revive_mock, patch("builtins.print") as print_mock:
+        success = caster.revive_magic(target)
+
+    assert success is True
+    assert caster.mp == 15
+
+    # round(150 × 0.5) = 75
+    revive_mock.assert_called_once_with(75)
+    assert target.hp == 75
+    assert target.status == make_status()
+
+    printed = " ".join(
+        str(arg)
+        for call in print_mock.call_args_list
+        for arg in call[0]
+    )
+
+    assert "<勇者のリザレクトが発動！>" in printed
+    assert "<戦士は生き返った！(残HP75/150)>" in printed
+
+    # MPがちょうど足りる
+    caster = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+    caster.mp = 15
+    target = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    target.hp = 0
+
+    with patch("builtins.print"):
+        success = caster.revive_magic(target)
+
+    assert success is True
+    assert caster.mp == 0
+    assert target.hp == 75
+
+    # ---------------------------------------------------------------
+    # 5. revive_magic()：失敗するとMPを消費せず、蘇生もしない
+    # ケース名、使用者のMP、対象のHP
+    fail_cases = [
+        ("生存している対象", 30, 100),
+        ("MP不足", 14, 0),
+        ("生存していてMPも不足", 0, 100),
+    ]
+
+    for label, caster_mp, target_hp in fail_cases:
+        caster = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+        caster.mp = caster_mp
+        target = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+        target.hp = target_hp
+
+        with patch.object(
+            target,
+            "revive",
+            wraps=target.revive,
+        ) as revive_mock, patch("builtins.print"):
+            success = caster.revive_magic(target)
+
+        assert success is False, label
+        assert caster.mp == caster_mp, label
+        assert target.hp == target_hp, label
+        revive_mock.assert_not_called()
+
+    # 生存している対象は、MPの確認より前に弾く
+    caster = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+    target = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+
+    with patch.object(
+        caster,
+        "use_mp",
+        wraps=caster.use_mp,
+    ) as use_mp_mock, patch("builtins.print") as print_mock:
+        caster.revive_magic(target)
+
+    use_mp_mock.assert_not_called()
+    print_mock.assert_called_once_with("<対象は戦闘不能ではありません>")
+
+# =======================================================================
+# 蘇生魔法のメニュー
+
+
+def test_revive_menu():
+    def joined_output(print_mock):
+        return " ".join(
+            str(arg)
+            for call in print_mock.call_args_list
+            for arg in call[0]
+        )
+
+    # ---------------------------------------------------------------
+    # 1. メニューの定義
+
+    hero = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+    magic_dict = hero.get_magic_action()
+
+    assert list(magic_dict) == [2, 3, 4, 5, 6]
+
+    revive_entry = magic_dict[6]
+
+    assert revive_entry["label"] == "リザレクト(MP15)"
+    assert revive_entry["target_side"] == "ally"
+    assert revive_entry["mpcost"] == 15
+    assert revive_entry["target_state"] == "fallen"
+
+    # メソッドは呼び出すたびに新しく作られるので、isではなく==で比べる
+    assert revive_entry["function"] == hero.revive_magic
+
+    # 既存の魔法には書かない（項目がなければ生存者が対象）
+    for magic_id in (2, 3, 4, 5):
+        assert "target_state" not in magic_dict[magic_id], magic_id
+
+    # ---------------------------------------------------------------
+    # 2. choose_target()：対象の状態による判定
+
+    # 2-1. fallenでは、生存者を弾いて戦闘不能の対象を選べる
+    alive = game.Hero("生存者", 100, 0, 10, game.Inventory({}))
+    fallen = game.Hero("戦闘不能", 100, 0, 10, game.Inventory({}))
+    fallen.hp = 0
+
+    input_mock = Mock(side_effect=[0, 1])
+    chooser = game.Hero(
+        "選ぶ人", 100, 30, 10, game.Inventory({}), input_func=input_mock
+    )
+
+    with patch("builtins.print") as print_mock:
+        result = chooser.choose_target([alive, fallen], "fallen")
+
+    assert result == (True, 1)
+    assert input_mock.call_count == 2
+    assert "<戦闘不能ではない対象は選べません>" in joined_output(print_mock)
+
+    # 2-2. 初期値（alive）では、今までどおり戦闘不能の対象を弾く
+    input_mock = Mock(side_effect=[1, 0])
+    chooser = game.Hero(
+        "選ぶ人", 100, 30, 10, game.Inventory({}), input_func=input_mock
+    )
+
+    with patch("builtins.print") as print_mock:
+        result = chooser.choose_target([alive, fallen])
+
+    assert result == (True, 0)
+    assert input_mock.call_count == 2
+    assert "<戦闘不能の対象は選べません>" in joined_output(print_mock)
+
+    # 2-3. fallenでも、範囲外の番号と-1は今までどおり
+    input_mock = Mock(side_effect=[5, -1])
+    chooser = game.Hero(
+        "選ぶ人", 100, 30, 10, game.Inventory({}), input_func=input_mock
+    )
+
+    with patch("builtins.print") as print_mock:
+        result = chooser.choose_target([alive, fallen], "fallen")
+
+    assert result == (False, -1)
+    assert input_mock.call_count == 2
+    assert "<対象が存在しません>" in joined_output(print_mock)
+
+    # 2-4. 不正な設定は、入力を求める前に止める
+    input_mock = Mock()
+    chooser = game.Hero(
+        "選ぶ人", 100, 30, 10, game.Inventory({}), input_func=input_mock
+    )
+
+    try:
+        with patch("builtins.print"):
+            chooser.choose_target([alive, fallen], "unknown")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("不正なtarget_stateでValueErrorになりませんでした")
+
+    input_mock.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # 3. 魔法メニューからリザレクを使う
+
+    # 3-1. 戦闘不能の仲間を選んで生き返らせる
+    # 入力：魔法ID 6、対象 1
+    input_mock = Mock(side_effect=[6, 1])
+    caster = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    warrior.hp = 0
+    warrior.status["poison_turn"] = 2
+    monster = game.Monster("敵", 50, 10, {})
+
+    with patch("builtins.print"):
+        success = caster.choose_magic_action([monster], [caster, warrior])
+
+    assert success is True
+    assert caster.mp == 15
+    assert warrior.hp == 75
+    assert warrior.status == make_status()
+    assert input_mock.call_count == 2
+
+    # 3-2. 先に生存している自分を選ぶと弾かれ、選び直せる
+    # 入力：魔法ID 6、対象 0（生存者なので弾かれる）、対象 1
+    input_mock = Mock(side_effect=[6, 0, 1])
+    caster = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    warrior.hp = 0
+
+    with patch.object(
+        caster,
+        "revive_magic",
+        wraps=caster.revive_magic,
+    ) as revive_mock, patch("builtins.print"):
+        success = caster.choose_magic_action([monster], [caster, warrior])
+
+    assert success is True
+    assert input_mock.call_count == 3
+
+    # 生存者は対象選択で弾かれるので、魔法は戦士に1回だけ使われる
+    revive_mock.assert_called_once_with(warrior)
+    assert warrior.hp == 75
+
+    # 3-3. ヒールは今までどおり、戦闘不能の仲間を選べない
+    # 入力：魔法ID 4、対象 1（弾かれる）、-1で魔法選択へ戻る、-1でメニューを閉じる
+    input_mock = Mock(side_effect=[4, 1, -1, -1])
+    caster = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    warrior.hp = 0
+
+    with patch("builtins.print") as print_mock:
+        success = caster.choose_magic_action([monster], [caster, warrior])
+
+    assert success is False
+    assert caster.mp == 30
+    assert warrior.hp == 0
+    assert input_mock.call_count == 4
+    assert "<戦闘不能の対象は選べません>" in joined_output(print_mock)
+
+    # 3-4. MPが足りなければ、対象を選ぶ前に弾く
+    # 入力：魔法ID 6（MP不足）、-1でメニューを閉じる
+    input_mock = Mock(side_effect=[6, -1])
+    caster = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    caster.mp = 14
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    warrior.hp = 0
+
+    with patch("builtins.print") as print_mock:
+        success = caster.choose_magic_action([monster], [caster, warrior])
+
+    assert success is False
+    assert caster.mp == 14
+    assert warrior.hp == 0
+    assert input_mock.call_count == 2
+    assert "<MPが足りません！>" in joined_output(print_mock)
+
+    # ---------------------------------------------------------------
+    # 4. 行動選択から魔法メニューを通って使える
+    # 入力：行動 2（魔法）、魔法ID 6、対象 1
+
+    input_mock = Mock(side_effect=[2, 6, 1])
+    caster = game.Hero(
+        "勇者", 200, 30, 20, game.Inventory({}), input_func=input_mock
+    )
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    warrior.hp = 0
+
+    with patch("builtins.print"):
+        success = caster.choose_action([monster], [caster, warrior])
+
+    assert success is True
+    assert warrior.hp == 75
+    assert input_mock.call_count == 3
+
+    # ---------------------------------------------------------------
+    # 5. 生き返ると、次に作る行動順に入る
+
+    hero = game.Hero("勇者", 200, 30, 20, game.Inventory({}), speed=15)
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}), speed=8)
+    warrior.hp = 0
+    monster = game.Monster("敵", 50, 10, {}, speed=10)
+
+    order = game.get_turn_order([hero, warrior], [monster])
+
+    assert order == [hero, monster]
+
+    warrior.revive(75)
+    order = game.get_turn_order([hero, warrior], [monster])
+
+    assert order == [hero, monster, warrior]
+
+# =======================================================================
 # テスト実行
 
 
@@ -3333,7 +3706,9 @@ def run_tests():
         test_monster_use_skill,
         test_boss_dragon,
         test_run_adventure,
-        test_hero_rest
+        test_hero_rest,
+        test_revive,
+        test_revive_menu
     ]
 
     # 全テストで待ち時間を無効化する。
