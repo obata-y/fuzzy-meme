@@ -8,7 +8,8 @@
 スライムとゴブリンを倒し、最後にドラゴンを討伐しよう。
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
+[![Tested with pytest](https://img.shields.io/badge/tested%20with-pytest-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+![Dependencies](https://img.shields.io/badge/runtime%20dependencies-none-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-CUI%20%2F%20Terminal-lightgrey)
 ![Status](https://img.shields.io/badge/status-WIP-orange)
 
@@ -35,8 +36,14 @@ ROUND1
 └[6: リザレクト(MP15)]
 └[-1: 戻る]
 魔法を選択してください：2
-<勇者のファイアが発動！(残MP20/30)>
-<ゴブリンAに31のダメージ！(残HP49/80)>
+└[0: スライムA(HP50/50)]
+└[1: スライムB(HP70/70)]
+└[2: ゴブリンA(HP80/80)]
+└[-1: 戻る]
+対象を選択してください：2
+
+<勇者のファイアが発動！>
+<ゴブリンAに29のダメージ！(残HP51/80)>
 <ゴブリンAは火傷にかかった！>
 ~~~
 
@@ -46,11 +53,13 @@ ROUND1
 
 - [概要](#-概要)
 - [特徴](#-特徴)
-- [クイックスタート](#-クイックスタート)
-- [ゲームの流れ](#-ゲームの流れ)
+- [セットアップ](#-セットアップ)
+- [遊び方](#-遊び方)
+- [テスト](#-テスト)
 - [ゲームシステム](#-ゲームシステム)
 - [キャラクター・モンスター](#-キャラクターモンスター)
 - [設計](#-設計)
+- [ディレクトリ構成](#-ディレクトリ構成)
 - [ロードマップ](#-ロードマップ)
 
 ---
@@ -58,7 +67,7 @@ ROUND1
 ## 🌍 概要
 
 Pythonの練習用に作っている、**ターミナルで動くパーティ制のターンバトルRPG**です。
-**標準ライブラリだけで動く**ので、Pythonが入っていればすぐに遊べます。
+ゲーム本体は**標準ライブラリだけで動く**ので、Pythonが入っていればすぐに遊べます。
 
 勇者と戦士のパーティで魔物の群れを倒し、休息と準備をしてからボスのドラゴンに挑みます。
 
@@ -71,43 +80,111 @@ Pythonの練習用に作っている、**ターミナルで動くパーティ制
 | ⚔️ | **ターン制バトル** | ラウンドごとに素早さの順で行動する |
 | 🔮 | **魔法 5種** | 攻撃・状態異常・回復・治療・蘇生 |
 | ☠️ | **状態異常 3種** | 麻痺・毒・火傷（継続ダメージ／行動不能／攻撃力低下） |
-| 🎒 | **共有インベントリ** | パーティ全員で同じアイテムを使う |
+| 🎒 | **アイテム 5種** | HP回復・MP回復・蘇生。パーティで共有して使う |
 | 📈 | **レベルアップ** | 経験値でHPと攻撃力が上がる |
 | 🤖 | **敵ごとのAI** | 狙う相手の選び方・技の選び方が敵によって違う |
 | 🏕️ | **ステージ間の休息** | 次の戦闘の前に回復と準備ができる |
-| 🧩 | **データ駆動** | アイテム・技・状態異常・成長値を辞書で定義 |
+| 🧩 | **データ駆動** | アイテム・魔法・状態異常・成長値を辞書で定義 |
+| 🧪 | **自動テスト** | pytestでゲームロジックを確認できる |
 
 ---
 
-## 🚀 クイックスタート
+## 🚀 セットアップ
 
 ### 必要なもの
 
-- Python **3.9** 以上（`tuple[bool, int]` の型ヒントを使っているため）
-- 外部ライブラリは不要
+- Python **3.9** 以上
+- ゲームを遊ぶだけなら外部ライブラリは不要（テストには `pytest` を使います）
 
-### 起動
+> [!NOTE]
+> macOSでは `python` / `pip` ではなく **`python3` / `pip3`** というコマンド名になっています。
+> 下の手順のように仮想環境を有効にすれば、その中では `python` と `pip` が使えます。
+
+### 1. リポジトリを取得する
 
 ~~~bash
-git clone https://github.com/your-name/your-repo.git
-cd your-repo
-python 1_main.py
+git clone https://github.com/obata-y/fuzzy-meme.git
+cd fuzzy-meme
 ~~~
 
-### 操作方法
+### 2. 仮想環境を作る（初回のみ）
+
+~~~bash
+python3 -m venv .venv
+~~~
+
+### 3. 仮想環境を有効にする（作業を始めるたびに実行）
+
+~~~bash
+# macOS / Linux
+source .venv/bin/activate
+
+# Windows（PowerShell）
+.venv\Scripts\Activate.ps1
+~~~
+
+有効になると、プロンプトの先頭に `(.venv)` が表示されます。
+
+~~~text
+(.venv) user@MacBook-Air your-repo %
+~~~
+
+### 4. 必要ライブラリを入れる（初回のみ）
+
+~~~bash
+pip install -r requirements-dev.txt
+~~~
+
+### 5. ゲームを起動する
+
+~~~bash
+python main.py
+~~~
+
+### 作業を終えるとき
+
+~~~bash
+deactivate
+~~~
+
+<details>
+<summary>🛠️ うまくいかないとき（クリックで展開）</summary>
+
+<br>
+
+| 症状 | 対処 |
+|---|---|
+| `zsh: command not found: pip` | `pip3` を使うか、仮想環境を有効にしてから `pip` を使う |
+| `zsh: command not found: python3` | [python.org](https://www.python.org/downloads/) かHomebrew（`brew install python`）でPythonを入れる |
+| `error: externally-managed-environment` | 仮想環境の外でインストールしようとしている。手順3で仮想環境を有効にする |
+| `ModuleNotFoundError: No module named 'pytest'` | 仮想環境が有効になっているか、`(.venv)` の表示で確認する |
+
+</details>
+
+---
+
+## 🎮 遊び方
 
 すべて**数字を入力して Enter** で操作します。`-1` を入力すると1つ前の選択に戻れます。
 
-| 入力 | 戦闘中の行動 |
+### 戦闘中の行動
+
+| 入力 | 行動 |
 |:---:|---|
 | `0` | 攻撃 |
 | `1` | アイテム |
 | `2` | 魔法 |
 | `3` | 防御（受けるダメージが半分になる） |
 
----
+### 出発準備中の行動
 
-## 🗺️ ゲームの流れ
+| 入力 | 行動 |
+|:---:|---|
+| `0` | 出発（次の仲間の準備へ） |
+| `1` | アイテム |
+| `2` | 魔法（味方向けのみ） |
+
+### ゲームの流れ
 
 ~~~mermaid
 flowchart LR
@@ -122,7 +199,64 @@ flowchart LR
 ~~~
 
 - **休息**：生きている仲間はHPが最大値の30%、MPが50%回復し、状態異常が治る
-- **出発準備**：味方向けの魔法とアイテムが使える。倒れた仲間はここでリザレクトすれば復活できる
+- **出発準備**：味方向けの魔法とアイテムが使える。倒れた仲間は、ここでリザレクトか蘇生薬を使えば復活できる
+
+---
+
+## 🧪 テスト
+
+ゲームロジックは [pytest](https://docs.pytest.org/) で確認できます。仮想環境を有効にした状態で実行してください。
+
+### 実行方法
+
+~~~bash
+# すべてのテストを実行する
+pytest
+
+# テスト名を1つずつ表示する
+pytest -v
+
+# 名前に "potion" を含むテストだけ実行する
+pytest -k potion
+
+# 最初に失敗したところで止める
+pytest -x
+~~~
+
+### テストの内容
+
+| 分類 | 確認していること |
+|---|---|
+| ダメージと防御 | HPの減り方、0未満にならないこと、防御で半減すること |
+| 回復と蘇生 | 最大HPを超えないこと、倒れた仲間は通常の回復では生き返らないこと |
+| 状態異常 | 麻痺で行動できないこと、毒の継続ダメージ、火傷で攻撃力が半分になること |
+| レベルアップ | 必要経験値の境目（29 / 30）、ステータスの上がり方 |
+| アイテム | 使うと減ること、効果が出なかったときは減らないこと、蘇生薬 |
+| 魔法 | ダメージと状態異常、MPの消費、失敗したときはMPが減らないこと |
+| 戦闘の進行 | 勝敗の判定、行動順、敵AIの対象選び、戦闘全体の流れ |
+
+### テストしやすくするための工夫
+
+| 置き換えるもの | 方法 | 目的 |
+|---|---|---|
+| プレイヤーの入力 | `Hero(input_func=...)` に入力の順番を決めた関数を渡す | 入力を待たずに、操作の流れを再現する |
+| `time.sleep` | `conftest.py` の `monkeypatch` で何もしない関数に置き換える | テストをすぐ終わらせる |
+| ダメージの乱数 | `fixed_damage` フィクスチャ | ダメージを毎回同じ値にする |
+| 状態異常の発生判定 | `always_hit` フィクスチャ | 状態異常を必ず発生させる |
+| 敵のAI | `Monster(target_selector=..., attack_chooser=...)` | 敵の行動を決まったものにする |
+
+テストの例：
+
+~~~python
+def test_potion_is_not_consumed_when_hp_is_full(capsys):
+    hero = make_hero(inputs=[0, 0, -1])  # 回復薬 → 自分 → 失敗したので戻る
+
+    result = hero.choose_item([hero])
+
+    assert result is False
+    assert hero.inventory.items[0]["count"] == 3
+    assert "すでにHPは最大です" in capsys.readouterr().out
+~~~
 
 ---
 
@@ -139,6 +273,7 @@ flowchart LR
 
 ~~~text
 基本ダメージ = 攻撃力 × 火傷補正 × (1 + 乱数(-25%〜+25%))
+技・魔法     = 基本ダメージ × 倍率
 クリティカル = 20% の確率でダメージ2倍
 防御中       = ceil(ダメージ ÷ 2)
 ~~~
@@ -153,6 +288,20 @@ flowchart LR
 | ✨ キュア | 5 | 味方 | 毒を治す |
 | 👼 リザレクト | 15 | 倒れた味方 | 最大HPの50%で生き返らせる |
 
+効果が出なかった場合（HPが満タンの相手にヒールを使ったときなど）、**MPは消費されません**。
+
+### アイテム
+
+| アイテム | 効果 | 対象 | 最初の所持数 |
+|---|---|:-:|:-:|
+| 🧴 回復薬 | HPを30回復 | 味方 | 3 |
+| 🧴 上級回復薬 | HPを60回復 | 味方 | 1 |
+| 💧 魔力回復薬 | MPを10回復 | 味方 | 3 |
+| 💧 上級魔力回復薬 | MPを30回復 | 味方 | 1 |
+| 🪶 蘇生薬 | 最大HPの50%で生き返らせる | 倒れた味方 | 1 |
+
+アイテムもパーティで共有し、効果が出なかった場合は**個数が減りません**。
+
 ### 状態異常
 
 | 状態 | 毎ターンのダメージ | 追加効果 |
@@ -162,13 +311,6 @@ flowchart LR
 | 🔥 火傷 | 8 | **攻撃力が0.5倍** |
 
 すでにかかっている状態異常をもう一度受けた場合、残りターンは長いほうになります（重ねがけで延びることはありません）。
-
-### アイテム
-
-| アイテム | 効果 | 最初の所持数 |
-|---|---|:-:|
-| 回復薬 | HPを30回復 | 3 |
-| 上級回復薬 | HPを60回復 | 1 |
 
 ### レベルアップ
 
@@ -228,6 +370,70 @@ flowchart LR
 
 ## 🏗️ 設計
 
+### 3つの層に分けている
+
+アイテム・魔法・モンスターの技は、**同じ効果関数を共有**しています。違うのは「何を消費するか」だけです。
+
+~~~mermaid
+flowchart TB
+    subgraph Data[📋 定義データ：何を・どの数値で使うか]
+        Items[items<br/>個数を消費]
+        Magics[magics<br/>MPを消費]
+        Skills[モンスターの技<br/>消費なし]
+    end
+
+    subgraph Effects[✨ 効果関数：使用ルールの確認と表示]
+        E1[heal_hp_effect]
+        E2[heal_mp_effect]
+        E3[cure_effect]
+        E4[revive_effect]
+        E5[damage_effect]
+    end
+
+    subgraph Methods[🧍 メソッド：状態の変更と不変条件]
+        M1[heal_hp / heal_mp]
+        M2[clear_status]
+        M3[revive]
+        M4[take_damage / inflict_status]
+    end
+
+    Items --> Effects
+    Magics --> Effects
+    Skills --> E5
+    E1 --> M1
+    E2 --> M1
+    E3 --> M2
+    E4 --> M3
+    E5 --> M4
+~~~
+
+| 層 | 担当すること | 例 |
+|---|---|---|
+| **メソッド** | キャラクターの状態を変え、どこから呼ばれても守るべきルールを守る。表示はしない | HPは0〜最大HPに収まる。倒れたキャラは `revive()` 以外では回復しない |
+| **効果関数** | その効果を使ってよいか確認し、メッセージを表示する | HPが満タンなら失敗する |
+| **定義データ** | どの効果をどの数値で使うか、何を消費するかを決める | ファイア = `damage_effect` × 1.3倍、MP10 |
+
+効果関数の引数はすべて同じ形にそろえています。
+
+~~~python
+effect(user, target, announce, **params) -> bool
+~~~
+
+戻り値が `True` のときだけ、アイテムの個数やMPを減らします。そのため、新しいアイテムや魔法は**辞書に1件追加するだけ**で増やせます。
+
+~~~python
+# 例：毒消しを追加する
+5: {
+    "key": "antidote",
+    "name": "毒消し",
+    "description": "毒を治す",
+    "target_state": "alive",
+    "effect": cure_effect,
+    "params": {"status_key": "poison_turn"},
+    "count": 2,
+},
+~~~
+
 ### クラス構成
 
 ~~~mermaid
@@ -240,16 +446,18 @@ classDiagram
         +hp / maxhp
         +attack_power / speed
         +status
-        +attack()
         +take_damage()
+        +heal_hp()
+        +revive()
         +check_debuff()
     }
     class Hero {
         +mp / level / exp
         +input_func
         +choose_action()
+        +choose_item()
+        +choose_magic_action()
         +gain_exp()
-        +rest()
     }
     class Monster {
         +attacks
@@ -260,38 +468,28 @@ classDiagram
     }
     class Inventory {
         +items
-        +use()
+        +get()
+        +consume()
     }
 ~~~
 
-### 設計で意識していること
+### そのほかに意識していること
 
-- **処理を外から渡せるようにしている**
-  - `Hero(input_func=...)`：入力処理を差し替えられる。テストでは、決まった順番で値を返す関数を渡せる
-  - `Monster(target_selector=..., attack_chooser=...)`：敵のAIを関数で入れ替えられる（ストラテジーパターン）
-- **データとロジックを分けている**
-  - 状態異常は `status_definitions` に1件追加するだけで増やせる
-  - 成長値・休息の回復量・MP消費は `level_settings` / `rest_settings` / `magic_mpcosts` で調整できる
-- **ステージを差し替えられる**
-  - `run_adventure()` に渡すステージのリストを変えるだけで、冒険の構成を変えられる
+- **処理を外から渡せる**：入力（`input_func`）と敵のAI（`target_selector` / `attack_chooser`）は差し替えられるので、テストで決まった動きをさせられる
+- **ステージを差し替えられる**：`run_adventure()` に渡すステージのリストを変えるだけで、冒険の構成を変えられる
+- **初期データを書き換えない**：`items` はゲーム開始時に `deepcopy` してから使う
 
-### テストの例
+---
 
-~~~python
-def test_defend_halves_damage():
-    hero = Hero("勇者", 100, 0, 10, Inventory({}))
-    hero.defend()
-    hero.take_damage(15)
+## 📁 ディレクトリ構成
 
-    assert hero.hp == 92  # (15 + 1) // 2 = 8
-
-
-def test_choose_defend_by_scripted_input():
-    inputs = iter([3])  # 3: 防御
-    hero = Hero("勇者", 100, 0, 10, Inventory({}), input_func=lambda _: next(inputs))
-
-    assert hero.choose_action([], [hero])
-    assert hero.is_defending
+~~~text
+your-repo/
+├── main.py          # ゲーム本体
+├── conftest.py      # テスト共通の準備（sleep・乱数の置き換え）
+├── test_main.py     # テスト
+├── .gitignore       # .venv/ などを除外
+└── README.md
 ~~~
 
 ---
@@ -303,10 +501,12 @@ def test_choose_defend_by_scripted_input():
 - [x] レベルアップ
 - [x] ステージ制とボス戦
 - [x] ステージ間の休息と準備
-- [ ] 魔法の効果量（倍率・回復量）も定義データに移す
-- [ ] 機能ごとにモジュールを分ける（`characters/` `battle/` `data/`）
-- [ ] pytestによる自動テスト＋GitHub Actions
-- [ ] 乱数と `time.sleep` を外から渡せるようにする
+- [x] アイテムの種類を増やす（MP回復・蘇生）
+- [x] アイテム・魔法・技の効果を共通の効果関数にまとめる
+- [x] pytestによる自動テスト
+- [ ] GitHub Actionsで、pushするたびにテストを実行する
+- [ ] 機能ごとにモジュールを分ける（`characters/` `effects/` `data/`）
+- [ ] テストを `tests/` フォルダに移す
 - [ ] セーブとロード
 - [ ] 装備・ショップ
 
@@ -315,9 +515,10 @@ def test_choose_defend_by_scripted_input():
 ## 📚 このプロジェクトで学んでいること
 
 - 継承を使ったクラス設計（`Player` → `Hero` / `Monster`）
+- 状態を守るメソッドと、使い方を決める関数の分け方
 - 関数を渡して処理を差し替える設計（ストラテジーパターン、依存性の注入）
 - 辞書による、データ駆動のゲームバランス調整
-- 戻り値の真偽値で「キャンセル」と「実行完了」を区別するUIの流れ
+- pytestのフィクスチャ・`monkeypatch`・`parametrize` を使ったテスト
 
 ---
 

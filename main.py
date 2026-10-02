@@ -1,4 +1,4 @@
-# File: 1_main.py
+# File: main.py
 import random
 import time
 from copy import deepcopy
@@ -22,7 +22,7 @@ class Player:
         }
 
     def attack(self, target):
-        print(f"{self.name}の攻撃！")
+        print(f"<{self.name}の攻撃！>")
 
         damage = calculation_damage(self.get_attack_power())
         target.take_damage(damage)
@@ -134,6 +134,9 @@ class Player:
         return can_act
 
     def heal_hp(self, healpt) -> int:
+        if self.hp <= 0 or healpt <= 0:
+            return 0
+
         hp_before = self.hp
         self.hp = min(self.hp + healpt, self.maxhp)
 
@@ -240,39 +243,41 @@ class Hero(Player):
 
         print(f"<{self.name}は休息した！(HP{self.hp}/{self.maxhp} MP{self.mp}/{self.maxmp})>")
 
-    def use_item(self, item_id) -> bool:
-        heal_pt = self.inventory.use(item_id)
-
-        if heal_pt is None:
-            return False
-
-        actual_heal_pt = self.heal_hp(heal_pt)
-
-        print(
-            f"<{self.name}は{actual_heal_pt}の回復！"
-            f"(残HP{self.hp}/{self.maxhp})>"
-        )
-        return True
-
     def choose_item(self, targets) -> bool:
         while True:
             self.inventory.show_items()
             print("└[-1: 戻る]")
 
-            item_id = self.input_func(
-                "使用するアイテムを選んでください："
-            )
+            item_id = self.input_func("使用するアイテムを選んでください：")
 
             if item_id == -1:
                 return False
 
-            success, selected_id = self.choose_target(targets, target_state="alive")
+            item = self.inventory.get(item_id)
+
+            if item is None:
+                continue
+
+            target_state = item["target_state"]
+
+            if not any(matches_target_state(t, target_state) for t in targets):
+                print("<対象がいません>")
+                continue
+
+            success, selected_id = self.choose_target(targets, target_state)
 
             if not success:
                 continue
 
-            if targets[selected_id].use_item(item_id):
-                return True
+            target = targets[selected_id]
+
+            announce = f"<{self.name}は{item['name']}を使った！>"
+
+            if not item["effect"](self, target, announce, **item["params"]):
+                continue
+
+            self.inventory.consume(item_id)
+            return True
 
     def choose_action(self, targets, allies) -> bool:
         while True:
@@ -339,14 +344,15 @@ class Hero(Player):
                 print("選択肢から選んでください")
 
     def choose_magic_action(self, targets, allies, allowed_sides=("enemy", "ally")) -> bool:
-        magic_dict = {
-            key: value for key, value in self.get_magic_action().items()
-            if value['target_side'] in allowed_sides
+        available = {
+            magic_id: magic
+            for magic_id, magic in magics.items()
+            if magic["target_side"] in allowed_sides
         }
 
         while True:
-            for magic_id, data in magic_dict.items():
-                print(f"└[{magic_id}: {data['label']}]")
+            for magic_id, magic in available.items():
+                print(f"└[{magic_id}: {magic['name']}(MP{magic['mpcost']})]")
 
             print("└[-1: 戻る]")
 
@@ -355,29 +361,20 @@ class Hero(Player):
             if selected_id == -1:
                 return False
 
-            if selected_id not in magic_dict:
+            magic = available.get(selected_id)
+
+            if magic is None:
                 print("<魔法が存在しません>")
                 continue
 
-            selected_magic = magic_dict[selected_id]
-
-            if self.mp < selected_magic["mpcost"]:
+            if self.mp < magic["mpcost"]:
                 print("<MPが足りません！>")
                 continue
 
-            if selected_magic["target_side"] == "enemy":
-                candidates = targets
-            elif selected_magic["target_side"] == "ally":
-                candidates = allies
-            else:
-                raise ValueError("魔法の対象設定が不正です")
+            candidates = targets if magic["target_side"] == "enemy" else allies
+            target_state = magic["target_state"]
 
-            target_state = selected_magic.get("target_state", "alive")
-
-            if not any(
-                matches_target_state(candidate, target_state)
-                for candidate in candidates
-            ):
+            if not any(matches_target_state(c, target_state) for c in candidates):
                 print("<対象がいません>")
                 continue
 
@@ -387,12 +384,15 @@ class Hero(Player):
                 continue
 
             target = candidates[target_id]
-            success = selected_magic["function"](target)
+            announce = f"<{self.name}の{magic['name']}が発動！>"
 
-            if not success:
+            if not magic["effect"](self, target, announce, **magic["params"]):
                 continue
 
-            if selected_magic["target_side"] == "enemy":
+            self.use_mp(magic["mpcost"])
+            print(f"<残MP{self.mp}/{self.maxmp}>")
+
+            if magic["target_side"] == "enemy":
                 target.check_down()
 
             return True
@@ -434,160 +434,6 @@ class Hero(Player):
 
             print()
             return True, selected_id
-
-    def get_magic_action(self):
-        return {
-            2: {
-                "label": f"ファイア(MP{magic_mpcosts['fire']})",
-                "target_side": "enemy",
-                "function": self.fire_magic,
-                "mpcost": magic_mpcosts["fire"],
-            },
-            3: {
-                "label": f"ポイズン(MP{magic_mpcosts['poison']})",
-                "target_side": "enemy",
-                "function": self.poison_magic,
-                "mpcost": magic_mpcosts["poison"],
-            },
-            4: {
-                "label": f"ヒール(MP{magic_mpcosts['heal']})",
-                "target_side": "ally",
-                "function": self.heal_magic,
-                "mpcost": magic_mpcosts["heal"],
-            },
-            5: {
-                "label": f"キュア(MP{magic_mpcosts['cure']})",
-                "target_side": "ally",
-                "function": self.cure_magic,
-                "mpcost": magic_mpcosts["cure"],
-            },
-            6: {
-                "label": f"リザレクト(MP{magic_mpcosts['revive']})",
-                "target_side": "ally",
-                "function": self.revive_magic,
-                "mpcost": magic_mpcosts["revive"],
-                "target_state": "fallen"
-            },
-        }
-
-    def fire_magic(self, target) -> bool:
-        mpcost = magic_mpcosts["fire"]
-
-        if target.hp <= 0:
-            print("<戦闘不能キャラです>")
-            return False
-
-        if not self.use_mp(mpcost):
-            print("<MPが足りません！>")
-            return False
-
-        print(
-            f"<{self.name}のファイアが発動！"
-            f"(残MP{self.mp}/{self.maxmp})>"
-        )
-
-        damage = calculation_damage(self.get_attack_power())
-        damage = round(damage * 1.3)
-        target.take_damage(damage)
-
-        if target.hp > 0:
-            if random.random() <= 0.3:
-                target.inflict_status("burn_turn", 3)
-
-        return True
-
-    def poison_magic(self, target) -> bool:
-        # 発動の成否がTF
-        mpcost = magic_mpcosts["poison"]
-
-        if target.hp <= 0:
-            print("<戦闘不能キャラです>")
-            return False
-
-        if not self.use_mp(mpcost):
-            print("<MPが足りません！>")
-            return False
-
-        print(
-            f"<{self.name}のポイズンが発動！"
-            f"(残MP{self.mp}/{self.maxmp})>"
-        )
-
-        damage = calculation_damage(self.get_attack_power())
-        damage = round(damage * 0.5)
-        target.take_damage(damage)
-
-        if target.hp > 0:
-            target.inflict_status("poison_turn", 3)
-
-        return True
-
-    def heal_magic(self, target) -> bool:
-        mpcost = magic_mpcosts["heal"]
-
-        if target.hp <= 0:
-            print("<戦闘不能キャラです>")
-            return False
-
-        if target.hp == target.maxhp:
-            print("<すでにHPは最大です>")
-            return False
-
-        if not self.use_mp(mpcost):
-            print("<MPが足りません！>")
-            return False
-
-        actual_heal = target.heal_hp(50)
-
-        print(
-            f"{self.name}のヒールが発動！\n"
-            f"{target.name}は{actual_heal}の回復！"
-            f"(残HP{target.hp}/{target.maxhp})"
-        )
-        return True
-
-    def cure_magic(self, target) -> bool:
-        mpcost = magic_mpcosts["cure"]
-
-        if target.hp <= 0:
-            print("<戦闘不能キャラです>")
-            return False
-
-        if target.status["poison_turn"] <= 0:
-            print("<対象は毒にかかっていません>")
-            return False
-
-        if not self.use_mp(mpcost):
-            print("<MPが足りません！>")
-            return False
-
-        target.clear_status("poison_turn")
-
-        print(
-            f"<{self.name}のキュアが発動！>\n"
-            f"<{target.name}の毒が治癒した！>"
-        )
-        return True
-
-    def revive_magic(self, target) -> bool:
-        mpcost = magic_mpcosts["revive"]
-
-        if target.hp > 0:
-            print("<対象は戦闘不能ではありません>")
-            return False
-
-        if not self.use_mp(mpcost):
-            print("<MPが足りません！>")
-            return False
-
-        target.revive(round(target.maxhp * 0.5))
-
-        print(
-            f"<{self.name}のリザレクトが発動！>\n"
-            f"<{target.name}は生き返った！(残HP{target.hp}/{target.maxhp})>"
-        )
-
-        return True
 
 class Monster(Player):
 
@@ -652,16 +498,7 @@ class Monster(Player):
         self.attacks[attack_id]["function"](self, target)
 
     def use_skill(self, target, skill_name, multiplier, status_key=None, turn=0, chance=0.0):
-        print(f"<{self.name}の{skill_name}！>")
-
-        damage = round(calculation_damage(self.get_attack_power()) * multiplier)
-
-        target.take_damage(damage)
-
-        if status_key is not None:
-            if target.hp > 0:
-                if random.random() <= chance:
-                    target.inflict_status(status_key, turn)
+        damage_effect(self, target, f"<{self.name}の{skill_name}！>", multiplier, status_key, turn, chance)
 
 # =======================================================================
 # 所持品
@@ -675,26 +512,21 @@ class Inventory:
         for item_id, data in self.items.items():
             print(
                 f"└[{item_id}: {data['name']}"
-                f"(+HP{data['heal']}) × {data['count']}]"
+                f"({data['description']}) × {data['count']}]"
             )
 
-    def use(self, item_id):
-        if item_id not in self.items:
+    def get(self, item_id):
+        # 使えるアイテムなら定義を返す。消費はしない
+        if item_id not in self.items or self.items[item_id]["count"] <= 0:
             print("<アイテムが存在しません>")
             return None
 
-        if self.items[item_id]["count"] <= 0:
-            print("<アイテムが存在しません>")
-            return None
+        return self.items[item_id]
 
+    def consume(self, item_id) -> None:
         data = self.items[item_id]
         data["count"] -= 1
-
-        print(
-            f"<{data['name']}を使用した！"
-            f"(残り{data['count']}個)>"
-        )
-        return data["heal"]
+        print(f"<{data['name']} 残り{data['count']}個>")
 
 
 # =======================================================================
@@ -944,6 +776,65 @@ def matches_target_state(character, target_state) -> bool:
 
 
 # =======================================================================
+# グローバル関数(効果関係)
+# 引数は effect(user, target, announce, **params) の形
+
+def heal_hp_effect(user, target, announce, amount) -> bool:
+    if target.hp == target.maxhp:
+        print("<すでにHPは最大です>")
+        return False
+
+    print(announce)
+    healed = target.heal_hp(amount)
+    print(f"<{target.name}は{healed}の回復！(残HP{target.hp}/{target.maxhp})>")
+    return True
+
+
+def heal_mp_effect(user, target, announce, amount) -> bool:
+    if target.mp == target.maxmp:
+        print("<すでにMPは最大です>")
+        return False
+
+    print(announce)
+    healed = target.heal_mp(amount)
+    print(f"<{target.name}のMPが{healed}回復！(残MP{target.mp}/{target.maxmp})>")
+    return True
+
+
+def cure_effect(user, target, announce, status_key) -> bool:
+    if target.status[status_key] <= 0:
+        label = status_definitions[status_key]["label"]
+        print(f"<対象は{label}にかかっていません>")
+        return False
+
+    print(announce)
+    target.clear_status(status_key)
+    print(f"<{target.name}の{status_definitions[status_key]['label']}が治った！>")
+    return True
+
+
+def revive_effect(user, target, announce, ratio) -> bool:
+    if target.hp > 0:
+        print("<対象は戦闘不能ではありません>")
+        return False
+
+    print(announce)
+    target.revive(round(target.maxhp * ratio))
+    print(f"<{target.name}は生き返った！(残HP{target.hp}/{target.maxhp})>")
+    return True
+
+
+def damage_effect(user, target, announce, multiplier, status_key=None, turn=0, chance=0.0) -> bool:
+    print(announce)
+    damage = round(calculation_damage(user.get_attack_power()) * multiplier)
+    target.take_damage(damage)
+
+    if status_key is not None and target.hp > 0 and random.random() <= chance:
+        target.inflict_status(status_key, turn)
+
+    return True
+
+# =======================================================================
 # 戦闘進行
 
 def run_adventure(players, stages) -> str:
@@ -1059,13 +950,46 @@ items = {
     0: {
         "key": "potion",
         "name": "回復薬",
-        "heal": 30,
+        "description": "HP+30",
+        "target_state": "alive",
+        "effect": heal_hp_effect,
+        "params": {"amount": 30},
         "count": 3,
     },
     1: {
         "key": "high_potion",
         "name": "上級回復薬",
-        "heal": 60,
+        "description": "HP+60",
+        "target_state": "alive",
+        "effect": heal_hp_effect,
+        "params": {"amount": 60},
+        "count": 1,
+    },
+    2: {
+        "key": "mana_potion",
+        "name": "魔力回復薬",
+        "description": "MP+10",
+        "target_state": "alive",
+        "effect": heal_mp_effect,
+        "params": {"amount": 10},
+        "count": 3,
+    },
+    3: {
+        "key": "high_mana_potion",
+        "name": "上級魔力回復薬",
+        "description": "MP+30",
+        "target_state": "alive",
+        "effect": heal_mp_effect,
+        "params": {"amount": 30},
+        "count": 1,
+    },
+    4: {
+        "key": "revival_potion",
+        "name": "蘇生薬",
+        "description": "蘇生・HP50%",
+        "target_state": "fallen",
+        "effect": revive_effect,
+        "params": {"ratio": 0.5},
         "count": 1,
     },
 }
@@ -1148,12 +1072,47 @@ status_definitions = {
     },
 }
 
-magic_mpcosts = {
-    "fire": 10,
-    "poison":6,
-    "heal":8,
-    "cure": 5,
-    "revive": 15
+magics = {
+    2: {
+        "name": "ファイア",
+        "mpcost": 10,
+        "target_side": "enemy",
+        "target_state": "alive",
+        "effect": damage_effect,
+        "params": {"multiplier": 1.3, "status_key": "burn_turn", "turn": 3, "chance": 0.3},
+    },
+    3: {
+        "name": "ポイズン",
+        "mpcost": 6,
+        "target_side": "enemy",
+        "target_state": "alive",
+        "effect": damage_effect,
+        "params": {"multiplier": 0.5, "status_key": "poison_turn", "turn": 3, "chance": 1.0},
+    },
+    4: {
+        "name": "ヒール",
+        "mpcost": 8,
+        "target_side": "ally",
+        "target_state": "alive",
+        "effect": heal_hp_effect,
+        "params": {"amount": 50},
+    },
+    5: {
+        "name": "キュア",
+        "mpcost": 5,
+        "target_side": "ally",
+        "target_state": "alive",
+        "effect": cure_effect,
+        "params": {"status_key": "poison_turn"},
+    },
+    6: {
+        "name": "リザレクト",
+        "mpcost": 15,
+        "target_side": "ally",
+        "target_state": "fallen",
+        "effect": revive_effect,
+        "params": {"ratio": 0.5},
+    },
 }
 
 level_settings = {
