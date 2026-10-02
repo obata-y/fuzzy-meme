@@ -2956,6 +2956,334 @@ def test_boss_dragon():
     assert get_printed_lines(print_mock)[0] == "<ドラゴンの炎のブレス！>"
 
 # =======================================================================
+# 連戦の進行
+
+
+def test_run_adventure():
+    def make_stages(count):
+        stages = []
+
+        for number in range(1, count + 1):
+            if number == 1:
+                intro = None
+            else:
+                intro = f"<第{number}の敵が現れた！>"
+
+            stages.append({
+                "intro": intro,
+                "monsters": [game.Monster(f"敵{number}", 10, 1, {})],
+            })
+
+        return stages
+
+    # ケース名、ステージ数、battle()が返す結果の順番、期待する戻り値、期待する出来事の順番
+    # 出来事の数字は、何番目のステージかを表す
+    cases = [
+        (
+            "2戦とも勝つ",
+            2,
+            ["players", "players"],
+            "clear",
+            [
+                ("battle", 0),
+                ("exp", 0),
+                ("rest",),
+                ("print", "次の冒険へ進みます..."),
+                ("print", "<第2の敵が現れた！>"),
+                ("battle", 1),
+                ("exp", 1),
+            ],
+        ),
+        (
+            "1戦目で負ける",
+            2,
+            ["monsters"],
+            "monsters",
+            [
+                ("battle", 0),
+            ],
+        ),
+        (
+            "1戦目で引き分け",
+            2,
+            ["draw"],
+            "draw",
+            [
+                ("battle", 0),
+            ],
+        ),
+        (
+            "2戦目で負ける",
+            2,
+            ["players", "monsters"],
+            "monsters",
+            [
+                ("battle", 0),
+                ("exp", 0),
+                ("rest",),
+                ("print", "次の冒険へ進みます..."),
+                ("print", "<第2の敵が現れた！>"),
+                ("battle", 1),
+            ],
+        ),
+        (
+            "3戦とも勝つ",
+            3,
+            ["players", "players", "players"],
+            "clear",
+            [
+                ("battle", 0),
+                ("exp", 0),
+                ("rest",),
+                ("print", "次の冒険へ進みます..."),
+                ("print", "<第2の敵が現れた！>"),
+                ("battle", 1),
+                ("exp", 1),
+                ("rest",),
+                ("print", "次の冒険へ進みます..."),
+                ("print", "<第3の敵が現れた！>"),
+                ("battle", 2),
+                ("exp", 2),
+            ],
+        ),
+        (
+            "1ステージだけ",
+            1,
+            ["players"],
+            "clear",
+            [
+                ("battle", 0),
+                ("exp", 0),
+            ],
+        ),
+        (
+            "ステージなし",
+            0,
+            [],
+            "clear",
+            [],
+        ),
+    ]
+
+    for label, stage_count, battle_results, expected_result, expected_events in cases:
+        players, _ = game.create_battle_members()
+        stages = make_stages(stage_count)
+        remaining_results = list(battle_results)
+        events = []
+
+        def find_stage_index(monsters):
+            for index, stage in enumerate(stages):
+                if stage["monsters"] is monsters:
+                    return index
+
+            raise AssertionError(f"{label}：ステージにない敵の一覧が渡されました")
+
+        def fake_battle(received_players, monsters):
+            assert received_players is players, label
+            assert remaining_results, f"{label}：battle()が想定より多く呼ばれました"
+
+            events.append(("battle", find_stage_index(monsters)))
+            return remaining_results.pop(0)
+
+        def fake_distribute_exp(received_players, monsters):
+            assert received_players is players, label
+
+            events.append(("exp", find_stage_index(monsters)))
+            return 0
+
+        def fake_rest_party(received_players):
+            assert received_players is players, label
+
+            events.append(("rest",))
+
+        def fake_print(*args, **kwargs):
+            text = " ".join(str(arg) for arg in args)
+
+            # 空行のためのprint()は数えない
+            if text:
+                events.append(("print", text))
+
+        with patch.object(
+            game,
+            "battle",
+            side_effect=fake_battle,
+        ), patch.object(
+            game,
+            "distribute_exp",
+            side_effect=fake_distribute_exp,
+        ), patch.object(
+            game,
+            "rest_party",
+            side_effect=fake_rest_party,
+        ), patch(
+            "builtins.print",
+            side_effect=fake_print,
+        ):
+            result = game.run_adventure(players, stages)
+
+        assert result == expected_result, label
+        assert events == expected_events, (
+            f"{label}\n"
+            f"実際：{events}\n"
+            f"期待：{expected_events}"
+        )
+
+        # 用意した戦闘結果は、すべて使い切っている
+        assert remaining_results == [], label
+
+# =======================================================================
+# 戦闘の間の休息
+
+
+def test_hero_rest():
+    # ---------------------------------------------------------------
+    # 1. 定義データ
+
+    assert game.rest_settings == {"hp_ratio": 0.3, "mp_ratio": 0.5}
+
+    # ---------------------------------------------------------------
+    # 2. heal_mp()：実際に回復した量を返し、最大MPを超えない
+    # ケース名、現在のMP、回復量、期待する戻り値、期待するMP（最大MPは30）
+    mp_cases = [
+        ("通常", 10, 5, 5, 15),
+        ("上限で止まる", 28, 5, 2, 30),
+        ("満タン", 30, 5, 0, 30),
+        ("回復量0", 10, 0, 0, 10),
+    ]
+
+    for label, mp, amount, expected_return, expected_mp in mp_cases:
+        hero = game.Hero("勇者", 100, 30, 10, game.Inventory({}))
+        hero.mp = mp
+
+        result = hero.heal_mp(amount)
+
+        assert result == expected_return, label
+        assert hero.mp == expected_mp, label
+
+    # ---------------------------------------------------------------
+    # 3. rest()：防御・状態異常の解除と、HP・MPの一部回復
+
+    hero = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+    hero.hp = 100
+    hero.mp = 4
+    hero.is_defending = True
+    hero.status = make_status(
+        paralysis_turn=1,
+        poison_turn=2,
+        burn_turn=3,
+    )
+    status_object = hero.status
+
+    with patch("builtins.print") as print_mock:
+        result = hero.rest()
+
+    assert result is None
+
+    # HP：100 + round(200 × 0.3) = 160
+    # MP：4 + round(30 × 0.5) = 19
+    assert hero.hp == 160
+    assert hero.mp == 19
+    assert hero.is_defending is False
+    assert hero.status == make_status()
+
+    # 辞書を作り直さず、中身だけを変える
+    assert hero.status is status_object
+
+    assert get_printed_lines(print_mock)[0] == (
+        "<勇者は休息した！(HP160/200 MP19/30)>"
+    )
+
+    # 上限で止まる
+    hero = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+    hero.hp = 190
+    hero.mp = 29
+
+    with patch("builtins.print"):
+        hero.rest()
+
+    assert hero.hp == 200
+    assert hero.mp == 30
+
+    # 最大MPが0でも動く
+    warrior = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    warrior.hp = 50
+
+    with patch("builtins.print"):
+        warrior.rest()
+
+    # 50 + round(150 × 0.3) = 95
+    assert warrior.hp == 95
+    assert warrior.mp == 0
+
+    # ---------------------------------------------------------------
+    # 4. 戦闘不能なら何もしない（蘇生しない）
+
+    fallen = game.Hero("倒れた戦士", 150, 0, 40, game.Inventory({}))
+    fallen.hp = 0
+    fallen.is_defending = True
+    fallen.status["poison_turn"] = 2
+    status_before = fallen.status.copy()
+
+    with patch("builtins.print") as print_mock:
+        fallen.rest()
+
+    assert fallen.hp == 0
+    assert fallen.is_defending is True
+    assert fallen.status == status_before
+    print_mock.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # 5. 回復の割合は定義データから読む
+
+    hero = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+    hero.hp = 50
+    hero.mp = 0
+
+    with patch.dict(
+        game.rest_settings,
+        {"hp_ratio": 0.5, "mp_ratio": 0.1},
+    ), patch("builtins.print"):
+        hero.rest()
+
+    # 50 + round(200 × 0.5) = 150、0 + round(30 × 0.1) = 3
+    assert hero.hp == 150
+    assert hero.mp == 3
+
+    # ---------------------------------------------------------------
+    # 6. rest_party()：全員にrest()を呼び、生存者だけが回復する
+
+    alive = game.Hero("勇者", 200, 30, 20, game.Inventory({}))
+    alive.hp = 100
+    alive.status["burn_turn"] = 2
+
+    fallen = game.Hero("戦士", 150, 0, 40, game.Inventory({}))
+    fallen.hp = 0
+
+    with patch.object(
+        alive,
+        "rest",
+        wraps=alive.rest,
+    ) as alive_rest_mock, patch.object(
+        fallen,
+        "rest",
+        wraps=fallen.rest,
+    ) as fallen_rest_mock, patch.object(
+        game.time,
+        "sleep",
+    ), patch("builtins.print") as print_mock:
+        result = game.rest_party([alive, fallen])
+
+    assert result is None
+    alive_rest_mock.assert_called_once_with()
+    fallen_rest_mock.assert_called_once_with()
+
+    assert alive.hp == 160
+    assert alive.status == make_status()
+    assert fallen.hp == 0
+
+    assert get_printed_lines(print_mock)[0] == "<一行は休息をとった>"
+
+# =======================================================================
 # テスト実行
 
 
@@ -3003,7 +3331,9 @@ def run_tests():
         test_status_slots_follow_definitions,
         test_burn_status,
         test_monster_use_skill,
-        test_boss_dragon
+        test_boss_dragon,
+        test_run_adventure,
+        test_hero_rest
     ]
 
     # 全テストで待ち時間を無効化する。

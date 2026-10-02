@@ -207,6 +207,26 @@ class Hero(Player):
         self.mp -= mpcost
         return True
 
+    def heal_mp(self, healpt) -> int:
+        mp_before = self.mp
+        self.mp = min(self.mp + healpt, self.maxmp)
+
+        return self.mp - mp_before
+
+    def rest(self) -> None:
+        if self.hp <= 0:
+            return
+
+        self.is_defending = False
+
+        for key in status_definitions.keys():
+            self.clear_status(key)
+
+        self.heal_hp(round(self.maxhp * rest_settings["hp_ratio"]))
+        self.heal_mp(round(self.maxmp * rest_settings["mp_ratio"]))
+
+        print(f"<{self.name}は休息した！(HP{self.hp}/{self.maxhp} MP{self.mp}/{self.maxmp})>")
+
     def use_item(self, item_id) -> bool:
         heal_pt = self.inventory.use(item_id)
 
@@ -723,6 +743,13 @@ def show_battle_result(win: str, players, monsters):
         print("引き分け！")
 
 
+def rest_party(players) -> None:
+    time.sleep(1)
+    print("<一行は休息をとった>")
+    for player in players:
+        player.rest()
+
+
 def input_int(message="数字を入力してください：") -> int:
     while True:
         try:
@@ -771,6 +798,26 @@ def select_weighted_attack(attacks, hp_ratio) -> int:
 
 # =======================================================================
 # 戦闘進行
+
+def run_adventure(players, stages) -> str:
+    for index, stage in enumerate(stages):
+        if stage["intro"] is not None:
+            print(stage["intro"])
+
+        win = battle(players, stage["monsters"])
+
+        if win != "players":
+            return win
+
+        distribute_exp(players, stage["monsters"])
+
+        # 次のステージがある場合だけ、休息して表示する
+        if index < len(stages) - 1:
+            rest_party(players)
+            time.sleep(1)
+            print("次の冒険へ進みます...")
+
+    return "clear"
 
 
 def battle(players, monsters):
@@ -964,6 +1011,11 @@ level_settings = {
     "attack_power": 4,
 }
 
+rest_settings = {
+    "hp_ratio": 0.3,
+    "mp_ratio": 0.5,
+}
+
 # =======================================================================
 # 起動処理
 
@@ -977,32 +1029,27 @@ def main():
     time.sleep(1)
 
     players, monsters = create_battle_members()
-    win = battle(players, monsters)
+
+    stages = [
+        {
+            "intro": None,
+            "monsters": monsters,
+        },
+        {
+            "intro": "<ドラゴンが現れた！>",
+            "monsters": create_boss_monsters(),
+        },
+    ]
+
+    result = run_adventure(players, stages)
 
     time.sleep(1)
 
-    if win == "players":
-        distribute_exp(players, monsters)
-        time.sleep(1)
-        print("次の冒険へ進みます...")
-        time.sleep(1)
-        print("<ドラゴンが現れた！>")
-        time.sleep(1)
-        dragons = create_boss_monsters()
-        win = battle(players, dragons)
-
-        if win == "players":
-            distribute_exp(players, dragons)
-            time.sleep(1)
-            print("ゲームクリア！")
-        elif win == "monsters":
-            print("ゲームオーバー")
-        elif win == "draw":
-            print("戦闘は引き分けでした")
-
-    elif win == "monsters":
+    if result == "clear":
+        print("ゲームクリア！")
+    elif result == "monsters":
         print("ゲームオーバー")
-    elif win == "draw":
+    elif result == "draw":
         print("戦闘は引き分けでした")
 
 
