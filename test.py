@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 # 数字で始まるモジュール名はimportlibで読み込む。
 # ゲーム側の関数をモックにするときも、このgameを指定する。
-game = importlib.import_module("1_main")
+game = importlib.import_module("main")
 
 
 # =======================================================================

@@ -266,7 +266,7 @@ class Hero(Player):
             if item_id == -1:
                 return False
 
-            success, selected_id = self.choose_target(targets, target_state=None)
+            success, selected_id = self.choose_target(targets, target_state="alive")
 
             if not success:
                 continue
@@ -324,7 +324,7 @@ class Hero(Player):
                 return False
 
             elif action == 1:
-                if not self.choose_item():
+                if not self.choose_item(allies):
                     continue
 
                 return True
@@ -756,7 +756,7 @@ def create_normal_monsters() -> list:
             "ゴブリンA",
             80,
             15,
-            gobrin_attacks,
+            goblin_attacks,
             speed=18,
             target_selector=select_lowest_hp_ratio_target,
             exp=20,
@@ -1093,7 +1093,7 @@ slime_attacks = {
     },
 }
 
-gobrin_attacks = {
+goblin_attacks = {
     10: {
         "name": "攻撃",
         "function": Player.attack,
