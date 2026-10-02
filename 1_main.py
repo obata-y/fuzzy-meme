@@ -712,6 +712,12 @@ def create_battle_members(input_func=None) -> tuple[list, list]:
         ),
     ]
 
+    monsters = create_normal_monsters()
+
+    return players, monsters
+
+
+def create_normal_monsters() -> list:
     monsters = [
         Monster(
             "スライムA",
@@ -740,7 +746,7 @@ def create_battle_members(input_func=None) -> tuple[list, list]:
         ),
     ]
 
-    return players, monsters
+    return monsters
 
 
 def create_boss_monsters() -> list:
@@ -833,9 +839,23 @@ def camp_party(players) -> None:
     time.sleep(1)
     print("<出発の準備をする>")
 
-    for player in players:
-        if player.hp <= 0:
-            continue
+    finished = []
+
+    while True:
+
+        # 生存していて、まだ準備を終えていない仲間を探す
+        candidates = [
+            player
+            for player in players
+            if player.hp > 0 and player not in finished
+        ]
+
+        # 該当する仲間がいなければ終了
+        if not candidates:
+            break
+
+        # 先頭の仲間を取得
+        player = candidates[0]
 
         player.show_status()
 
@@ -844,6 +864,9 @@ def camp_party(players) -> None:
 
             if not acted:
                 break
+
+        # 準備完了として記録
+        finished.append(player)
 
 
 def input_int(message="数字を入力してください：") -> int:
@@ -900,12 +923,14 @@ def run_adventure(players, stages) -> str:
         if stage["intro"] is not None:
             print(stage["intro"])
 
-        win = battle(players, stage["monsters"])
+        monsters = stage["create_monsters"]()
+
+        win = battle(players, monsters)
 
         if win != "players":
             return win
 
-        distribute_exp(players, stage["monsters"])
+        distribute_exp(players, monsters)
 
         # 次のステージがある場合だけ、休息と準備をしてから出発する
         if index < len(stages) - 1:
@@ -1126,16 +1151,16 @@ def main():
     )
     time.sleep(1)
 
-    players, monsters = create_battle_members()
+    players, _ = create_battle_members()
 
     stages = [
         {
             "intro": None,
-            "monsters": monsters,
+            "create_monsters": create_normal_monsters,
         },
         {
             "intro": "<ドラゴンが現れた！>",
-            "monsters": create_boss_monsters(),
+            "create_monsters": create_boss_monsters,
         },
     ]
 

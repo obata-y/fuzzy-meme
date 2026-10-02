@@ -2962,22 +2962,6 @@ def test_boss_dragon():
 
 
 def test_run_adventure():
-    def make_stages(count):
-        stages = []
-
-        for number in range(1, count + 1):
-            if number == 1:
-                intro = None
-            else:
-                intro = f"<第{number}の敵が現れた！>"
-
-            stages.append({
-                "intro": intro,
-                "monsters": [game.Monster(f"敵{number}", 10, 1, {})],
-            })
-
-        return stages
-
     # ケース名、ステージ数、battle()が返す結果の順番、期待する戻り値、期待する出来事の順番
     # 出来事の数字は、何番目のステージかを表す
     cases = [
@@ -2987,12 +2971,14 @@ def test_run_adventure():
             ["players", "players"],
             "clear",
             [
+                ("create", 0),
                 ("battle", 0),
                 ("exp", 0),
                 ("rest",),
                 ("camp",),
                 ("print", "次の冒険へ進みます..."),
                 ("print", "<第2の敵が現れた！>"),
+                ("create", 1),
                 ("battle", 1),
                 ("exp", 1),
             ],
@@ -3003,6 +2989,7 @@ def test_run_adventure():
             ["monsters"],
             "monsters",
             [
+                ("create", 0),
                 ("battle", 0),
             ],
         ),
@@ -3012,6 +2999,7 @@ def test_run_adventure():
             ["draw"],
             "draw",
             [
+                ("create", 0),
                 ("battle", 0),
             ],
         ),
@@ -3021,12 +3009,14 @@ def test_run_adventure():
             ["players", "monsters"],
             "monsters",
             [
+                ("create", 0),
                 ("battle", 0),
                 ("exp", 0),
                 ("rest",),
                 ("camp",),
                 ("print", "次の冒険へ進みます..."),
                 ("print", "<第2の敵が現れた！>"),
+                ("create", 1),
                 ("battle", 1),
             ],
         ),
@@ -3036,18 +3026,21 @@ def test_run_adventure():
             ["players", "players", "players"],
             "clear",
             [
+                ("create", 0),
                 ("battle", 0),
                 ("exp", 0),
                 ("rest",),
                 ("camp",),
                 ("print", "次の冒険へ進みます..."),
                 ("print", "<第2の敵が現れた！>"),
+                ("create", 1),
                 ("battle", 1),
                 ("exp", 1),
                 ("rest",),
                 ("camp",),
                 ("print", "次の冒険へ進みます..."),
                 ("print", "<第3の敵が現れた！>"),
+                ("create", 2),
                 ("battle", 2),
                 ("exp", 2),
             ],
@@ -3058,6 +3051,7 @@ def test_run_adventure():
             ["players"],
             "clear",
             [
+                ("create", 0),
                 ("battle", 0),
                 ("exp", 0),
             ],
@@ -3073,16 +3067,45 @@ def test_run_adventure():
 
     for label, stage_count, battle_results, expected_result, expected_events in cases:
         players, _ = game.create_battle_members()
-        stages = make_stages(stage_count)
         remaining_results = list(battle_results)
         events = []
 
+        # ステージの番号 → そのステージで作られた敵の一覧
+        created = {}
+
+        def make_factory(index):
+            def create_monsters():
+                assert index not in created, (
+                    f"{label}：第{index + 1}ステージの敵が2回作られました"
+                )
+
+                monsters = [game.Monster(f"敵{index + 1}", 10, 1, {})]
+                created[index] = monsters
+                events.append(("create", index))
+
+                return monsters
+
+            return create_monsters
+
+        stages = []
+
+        for index in range(stage_count):
+            if index == 0:
+                intro = None
+            else:
+                intro = f"<第{index + 1}の敵が現れた！>"
+
+            stages.append({
+                "intro": intro,
+                "create_monsters": make_factory(index),
+            })
+
         def find_stage_index(monsters):
-            for index, stage in enumerate(stages):
-                if stage["monsters"] is monsters:
+            for index, created_monsters in created.items():
+                if created_monsters is monsters:
                     return index
 
-            raise AssertionError(f"{label}：ステージにない敵の一覧が渡されました")
+            raise AssertionError(f"{label}：作られていない敵の一覧が渡されました")
 
         def fake_battle(received_players, monsters):
             assert received_players is players, label
@@ -3862,6 +3885,282 @@ def test_camp():
     assert hero_input.call_count == 1
     assert fallen.hp == 0
 
+
+def test_camp_order():
+    def make_recorder(player, events, players):
+        # 本物のchoose_camp_action()を動かしながら、呼ばれた順番を記録する
+        original = player.choose_camp_action
+
+        def recorder(allies):
+            assert allies is players, player.name
+
+            events.append(player.name)
+            return original(allies)
+
+        return recorder
+
+    # ---------------------------------------------------------------
+    # 1. 並びと蘇生の組み合わせ
+    # ケース名、並び、戦士が倒れているか、勇者の入力、戦士の入力、
+    # 期待する呼び出し順、期待する戦士のHP
+    cases = [
+        (
+            "勇者が先・全員生存",
+            "hero_first",
+            False,
+            [0],
+            [0],
+            ["勇者", "戦士"],
+            150,
+        ),
+        (
+            "戦士が先・全員生存",
+            "warrior_first",
+            False,
+            [0],
+            [0],
+            ["戦士", "勇者"],
+            150,
+        ),
+        (
+            # 勇者の入力：魔法 2、リザレクト 6、対象 1（戦士）、出発 0
+            "勇者が先・戦士を蘇生",
+            "hero_first",
+            True,
+            [2, 6, 1, 0],
+            [0],
+            ["勇者", "勇者", "戦士"],
+            75,
+        ),
+        (
+            # 勇者の入力：魔法 2、リザレクト 6、対象 0（戦士）、出発 0
+            "戦士が先・戦士を蘇生",
+            "warrior_first",
+            True,
+            [2, 6, 0, 0],
+            [0],
+            ["勇者", "勇者", "戦士"],
+            75,
+        ),
+        (
+            "戦士が倒れたまま出発",
+            "warrior_first",
+            True,
+            [0],
+            [],
+            ["勇者"],
+            0,
+        ),
+    ]
+
+    for (
+        label,
+        order,
+        warrior_fallen,
+        hero_inputs,
+        warrior_inputs,
+        expected_events,
+        expected_warrior_hp,
+    ) in cases:
+        hero_input = Mock(side_effect=list(hero_inputs))
+        warrior_input = Mock(side_effect=list(warrior_inputs))
+
+        hero = game.Hero(
+            "勇者", 200, 30, 20, game.Inventory({}), input_func=hero_input
+        )
+        warrior = game.Hero(
+            "戦士", 150, 0, 40, game.Inventory({}), input_func=warrior_input
+        )
+
+        if warrior_fallen:
+            warrior.hp = 0
+
+        if order == "hero_first":
+            players = [hero, warrior]
+        else:
+            players = [warrior, hero]
+
+        players_before = list(players)
+        events = []
+
+        # 置き換える前に、本物のメソッドを覚えた記録用の関数を作っておく
+        hero_recorder = make_recorder(hero, events, players)
+        warrior_recorder = make_recorder(warrior, events, players)
+
+        with patch.object(
+            hero,
+            "choose_camp_action",
+            side_effect=hero_recorder,
+        ), patch.object(
+            warrior,
+            "choose_camp_action",
+            side_effect=warrior_recorder,
+        ), patch.object(game.time, "sleep"), patch("builtins.print"):
+            result = game.camp_party(players)
+
+        assert result is None, label
+        assert events == expected_events, (
+            f"{label}\n"
+            f"実際：{events}\n"
+            f"期待：{expected_events}"
+        )
+
+        # 用意した入力をすべて使い切っている
+        assert hero_input.call_count == len(hero_inputs), label
+        assert warrior_input.call_count == len(warrior_inputs), label
+
+        assert warrior.hp == expected_warrior_hp, label
+
+        # 一覧の並びは変えない
+        assert players == players_before, label
+
+    # ---------------------------------------------------------------
+    # 2. 仲間がいない・全員が倒れている
+
+    with patch.object(game.time, "sleep"), patch(
+        "builtins.print"
+    ) as print_mock:
+        result = game.camp_party([])
+
+    assert result is None
+    assert get_printed_lines(print_mock)[0] == "<出発の準備をする>"
+
+    fallen_inputs = [Mock(), Mock()]
+    fallen_party = [
+        game.Hero(
+            f"倒れた仲間{number}",
+            100,
+            0,
+            10,
+            game.Inventory({}),
+            input_func=input_mock,
+        )
+        for number, input_mock in enumerate(fallen_inputs, 1)
+    ]
+
+    for member in fallen_party:
+        member.hp = 0
+
+    with patch.object(game.time, "sleep"), patch("builtins.print"):
+        game.camp_party(fallen_party)
+
+    for input_mock in fallen_inputs:
+        input_mock.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # 3. 同じ名前の仲間がいても、それぞれ1回ずつ準備する
+
+    first_input = Mock(side_effect=[0])
+    second_input = Mock(side_effect=[0])
+
+    twins = [
+        game.Hero(
+            "勇者", 200, 30, 20, game.Inventory({}), input_func=first_input
+        ),
+        game.Hero(
+            "勇者", 200, 30, 20, game.Inventory({}), input_func=second_input
+        ),
+    ]
+
+    with patch.object(game.time, "sleep"), patch("builtins.print"):
+        game.camp_party(twins)
+
+    assert first_input.call_count == 1
+    assert second_input.call_count == 1
+
+# =======================================================================
+# ステージの敵を作る関数
+
+
+def test_stage_factories():
+    def joined_output(print_mock):
+        return " ".join(
+            str(arg)
+            for call in print_mock.call_args_list
+            for arg in call[0]
+        )
+
+    # ---------------------------------------------------------------
+    # 1. create_normal_monsters()：今までと同じ3体を作る
+
+    monsters = game.create_normal_monsters()
+
+    assert isinstance(monsters, list)
+    assert [m.name for m in monsters] == ["スライムA", "スライムB", "ゴブリンA"]
+    assert [m.maxhp for m in monsters] == [50, 70, 80]
+    assert [m.attack_power for m in monsters] == [10, 8, 15]
+    assert [m.speed for m in monsters] == [10, 6, 18]
+    assert [m.exp for m in monsters] == [8, 10, 20]
+    assert monsters[0].attacks is game.slime_attacks
+    assert monsters[1].attacks is game.slime_attacks
+    assert monsters[2].attacks is game.gobrin_attacks
+    assert monsters[2].target_selector is game.select_lowest_hp_ratio_target
+
+    # 呼び出すたびに別の敵を作る
+    other = game.create_normal_monsters()
+
+    for first, second in zip(monsters, other):
+        assert first is not second, first.name
+        assert first.status is not second.status, first.name
+
+    # ---------------------------------------------------------------
+    # 2. create_battle_members()は、敵の作成をcreate_normal_monsters()に任せる
+
+    with patch.object(
+        game,
+        "create_normal_monsters",
+        wraps=game.create_normal_monsters,
+    ) as normal_mock:
+        players, battle_monsters = game.create_battle_members()
+
+    normal_mock.assert_called_once_with()
+    assert [p.name for p in players] == ["勇者", "戦士"]
+    assert [m.name for m in battle_monsters] == ["スライムA", "スライムB", "ゴブリンA"]
+
+    # ---------------------------------------------------------------
+    # 3. main()：ステージには関数そのものを入れ、ボスはまだ作らない
+
+    captured = {}
+
+    def fake_run_adventure(received_players, stages):
+        captured["players"] = received_players
+        captured["stages"] = stages
+        return "clear"
+
+    with patch.object(
+        game,
+        "run_adventure",
+        side_effect=fake_run_adventure,
+    ), patch.object(
+        game,
+        "create_boss_monsters",
+        wraps=game.create_boss_monsters,
+    ) as boss_mock, patch.object(
+        game.time,
+        "sleep",
+    ), patch("builtins.print") as print_mock:
+        result = game.main()
+
+    assert result is None
+
+    stages = captured["stages"]
+
+    assert len(stages) == 2
+    assert stages[0] == {
+        "intro": None,
+        "create_monsters": game.create_normal_monsters,
+    }
+    assert stages[1] == {
+        "intro": "<ドラゴンが現れた！>",
+        "create_monsters": boss_mock,
+    }
+
+    # main()の中では、ボスを作る関数を呼んでいない
+    boss_mock.assert_not_called()
+
+    assert [p.name for p in captured["players"]] == ["勇者", "戦士"]
+    assert "ゲームクリア！" in joined_output(print_mock)
+
 # =======================================================================
 # テスト実行
 
@@ -3915,7 +4214,9 @@ def run_tests():
         test_hero_rest,
         test_revive,
         test_revive_menu,
-        test_camp
+        test_camp,
+        test_camp_order,
+        test_stage_factories
     ]
 
     # 全テストで待ち時間を無効化する。
