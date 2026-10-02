@@ -4327,6 +4327,130 @@ def test_target_state_check():
     ]
 
 # =======================================================================
+# 味方を作る関数
+
+
+def test_party_factory():
+    # ---------------------------------------------------------------
+    # 1. create_party()：今までと同じ2人を作る
+
+    players = game.create_party()
+
+    assert isinstance(players, list)
+    assert all(isinstance(p, game.Hero) for p in players)
+    assert [p.name for p in players] == ["勇者", "戦士"]
+    assert [p.maxhp for p in players] == [200, 150]
+    assert [p.maxmp for p in players] == [30, 0]
+    assert [p.attack_power for p in players] == [20, 40]
+    assert [p.speed for p in players] == [15, 8]
+
+    # 初期値では、本物の入力関数を使う
+    for player in players:
+        assert player.input_func is game.input_int, player.name
+
+    # 2人は同じ所持品を共有する
+    assert players[0].inventory is players[1].inventory
+
+    # 所持品は初期定義と同じ内容だが、コピーされている
+    inventory_items = players[0].inventory.items
+
+    assert inventory_items == game.items
+    assert inventory_items is not game.items
+
+    for item_id in game.items:
+        assert inventory_items[item_id] is not game.items[item_id], item_id
+
+    # 呼び出すたびに、別の味方と別の所持品を作る
+    other = game.create_party()
+
+    for first, second in zip(players, other):
+        assert first is not second, first.name
+        assert first.status is not second.status, first.name
+
+    assert players[0].inventory is not other[0].inventory
+    assert players[0].inventory.items is not other[0].inventory.items
+
+    # 渡した入力関数を、2人とも使う
+    input_mock = Mock()
+    players = game.create_party(input_func=input_mock)
+
+    for player in players:
+        assert player.input_func is input_mock, player.name
+
+    input_mock.assert_not_called()
+
+    # ---------------------------------------------------------------
+    # 2. create_battle_members()は、味方と敵の作成をそれぞれの関数に任せる
+
+    input_mock = Mock()
+
+    with patch.object(
+        game,
+        "create_party",
+        wraps=game.create_party,
+    ) as party_mock, patch.object(
+        game,
+        "create_normal_monsters",
+        wraps=game.create_normal_monsters,
+    ) as normal_mock:
+        players, monsters = game.create_battle_members(input_func=input_mock)
+
+    party_mock.assert_called_once_with(input_func=input_mock)
+    normal_mock.assert_called_once_with()
+
+    assert [p.name for p in players] == ["勇者", "戦士"]
+    assert [m.name for m in monsters] == ["スライムA", "スライムB", "ゴブリンA"]
+
+    for player in players:
+        assert player.input_func is input_mock, player.name
+
+    # ---------------------------------------------------------------
+    # 3. main()：味方だけを作り、敵はまだ作らない
+
+    captured = {}
+
+    def fake_run_adventure(received_players, stages):
+        captured["players"] = received_players
+        captured["stages"] = stages
+        return "clear"
+
+    with patch.object(
+        game,
+        "run_adventure",
+        side_effect=fake_run_adventure,
+    ), patch.object(
+        game,
+        "create_party",
+        wraps=game.create_party,
+    ) as party_mock, patch.object(
+        game,
+        "create_normal_monsters",
+        wraps=game.create_normal_monsters,
+    ) as normal_mock, patch.object(
+        game,
+        "create_boss_monsters",
+        wraps=game.create_boss_monsters,
+    ) as boss_mock, patch.object(
+        game.time,
+        "sleep",
+    ), patch("builtins.print"):
+        game.main()
+
+    party_mock.assert_called_once_with()
+
+    # main()の中では、どちらの敵も作っていない
+    normal_mock.assert_not_called()
+    boss_mock.assert_not_called()
+
+    # ステージには、敵を作る関数そのものが入っている
+    stages = captured["stages"]
+
+    assert stages[0]["create_monsters"] is normal_mock
+    assert stages[1]["create_monsters"] is boss_mock
+
+    assert [p.name for p in captured["players"]] == ["勇者", "戦士"]
+
+# =======================================================================
 # テスト実行
 
 
@@ -4382,7 +4506,8 @@ def run_tests():
         test_camp,
         test_camp_order,
         test_stage_factories,
-        test_target_state_check
+        test_target_state_check,
+        test_party_factory
     ]
 
     # 全テストで待ち時間を無効化する。

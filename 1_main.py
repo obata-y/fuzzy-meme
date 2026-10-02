@@ -254,7 +254,7 @@ class Hero(Player):
         )
         return True
 
-    def choose_item(self) -> bool:
+    def choose_item(self, targets) -> bool:
         while True:
             self.inventory.show_items()
             print("└[-1: 戻る]")
@@ -266,7 +266,12 @@ class Hero(Player):
             if item_id == -1:
                 return False
 
-            if self.use_item(item_id):
+            success, selected_id = self.choose_target(targets, target_state=None)
+
+            if not success:
+                continue
+
+            if targets[selected_id].use_item(item_id):
                 return True
 
     def choose_action(self, targets, allies) -> bool:
@@ -291,7 +296,7 @@ class Hero(Player):
                 return True
 
             elif action == 1:
-                if not self.choose_item():
+                if not self.choose_item(allies):
                     continue
 
                 return True
@@ -392,8 +397,9 @@ class Hero(Player):
 
             return True
 
-    def choose_target(self, targets, target_state="alive"):
-        if target_state not in ("alive", "fallen"):
+    def choose_target(self, targets, target_state="alive") -> tuple[bool, int]:
+        # target_stateで、選択可能な対象を制限。Noneなら無制限
+        if target_state not in (None, "alive", "fallen"):
             raise ValueError("対象の状態設定が不正です")
 
         while True:
@@ -415,7 +421,10 @@ class Hero(Player):
                 print("<対象が存在しません>")
                 continue
 
-            if not matches_target_state(targets[selected_id], target_state):
+            if (
+                target_state is not None
+                and not matches_target_state(targets[selected_id], target_state)
+            ):
                 if target_state == "alive":
                     print("<戦闘不能の対象は選べません>")
                 else:
@@ -691,8 +700,7 @@ class Inventory:
 # =======================================================================
 # グローバル関数
 
-
-def create_battle_members(input_func=None) -> tuple[list, list]:
+def create_party(input_func=None) -> list:
     inventory = Inventory(deepcopy(items))
 
     players = [
@@ -716,6 +724,11 @@ def create_battle_members(input_func=None) -> tuple[list, list]:
         ),
     ]
 
+    return players
+
+
+def create_battle_members(input_func=None) -> tuple[list, list]:
+    players = create_party(input_func=input_func)
     monsters = create_normal_monsters()
 
     return players, monsters
@@ -1166,7 +1179,7 @@ def main():
     )
     time.sleep(1)
 
-    players, _ = create_battle_members()
+    players = create_party()
 
     stages = [
         {
