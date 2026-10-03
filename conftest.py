@@ -13,7 +13,11 @@ def no_sleep(monkeypatch):
 @pytest.fixture
 def fixed_damage(monkeypatch):
     # 乱数とクリティカルをなくし、ダメージを攻撃力と同じ値にする
-    monkeypatch.setattr(main, "calculation_damage", lambda attack_power: attack_power)
+    monkeypatch.setattr(
+        main.Player,
+        "calculation_damage",
+        lambda self, attack_power: attack_power,
+    )
 
 
 @pytest.fixture

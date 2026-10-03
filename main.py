@@ -9,11 +9,25 @@ from copy import deepcopy
 
 
 class Player:
-    def __init__(self, name, maxhp, attack_power, speed=10):
+    def __init__(
+        self,
+        name="nameless",
+        maxhp=100,
+        attack_power=10,
+        magic_power=10,
+        defense=10,
+        magic_defense=10,
+        luck=10,
+        speed=10
+    ):
         self.name = name
         self.hp = maxhp
         self.maxhp = maxhp
         self.attack_power = attack_power
+        self.magic_power = magic_power
+        self.defense = defense
+        self.magic_defense = magic_defense
+        self.luck = luck
         self.speed = speed
         self.is_defending = False
         self.status = {
@@ -24,8 +38,8 @@ class Player:
     def attack(self, target):
         print(f"<{self.name}の攻撃！>")
 
-        damage = calculation_damage(self.get_attack_power())
-        target.take_damage(damage)
+        damage = self.calculation_damage(self.get_attack_damage(damage_type="physical"))
+        target.take_damage(damage, "physical")
 
     def defend(self):
         self.is_defending = True
@@ -34,17 +48,62 @@ class Player:
     def start_turn(self):
         self.is_defending = False
 
-    def get_attack_power(self) -> int:
+    def get_attack_damage(self, damage_type="physical") -> int:
+        if damage_type == "physical":
+            base = self.attack_power
+        elif damage_type == "magic":
+            base = self.magic_power
+        else:
+            raise ValueError("攻撃種が不正です")
+
         # 状態から攻撃倍率を求める
         multiplier = 1.0
 
+        multiplier_key = {
+            "physical": "attack_multiplier",
+            "magic": "magic_multiplier",
+        }[damage_type]
+
         for key, definition in status_definitions.items():
             if self.status[key] > 0:
-                multiplier *= definition.get('attack_multiplier', 1)
+                multiplier *= definition.get(multiplier_key, 1)
 
-        return round(self.attack_power * multiplier)
+        return round(max(1, base * multiplier))
 
-    def take_damage(self, damage):
+    def calculation_damage(self, attack_power) -> int:
+        fluctuation = 20
+
+        damage = round(
+            attack_power
+            * (1 + random.randint(-fluctuation, fluctuation) / 100)
+        )
+
+        critical_percent = min(100, self.luck)
+
+        if random.random() < critical_percent / 100:
+            damage *= 2
+            print("<クリティカル！>")
+
+        return damage
+
+    def get_defense(self, damage_type="physical"):
+        if damage_type == "physical":
+            base = self.defense
+        elif damage_type == "magic":
+            base = self.magic_defense
+        else:
+            raise ValueError("攻撃種が不正です")
+
+        # のちに追加予定
+        multiplier = 1.0
+
+        return round(max(0, base * multiplier))
+
+    def take_damage(self, damage, damage_type=None):
+        # damage_type が None なら防御力を無視する（状態異常の継続ダメージなど）
+        if damage_type is not None:
+            damage = reduce_by_defense(damage, self.get_defense(damage_type))
+
         if self.is_defending:
             damage = (damage + 1) // 2
 
@@ -121,7 +180,9 @@ class Player:
                 f"(残り{self.status[key] - 1}ターン)>"
             )
 
-            self.take_damage(definition["damage"])
+            if definition["damage"] > 0:
+                self.take_damage(definition["damage"])
+
             self.status[key] -= 1
 
             time.sleep(1)
@@ -166,12 +227,25 @@ class Hero(Player):
         name,
         maxhp,
         maxmp,
-        attack_power,
         inventory,
+        attack_power=10,
+        magic_power=10,
+        defense=10,
+        magic_defense=10,
+        luck=10,
         speed=10,
         input_func=None
     ):
-        super().__init__(name, maxhp, attack_power, speed)
+        super().__init__(
+            name,
+            maxhp,
+            attack_power,
+            magic_power,
+            defense,
+            magic_defense,
+            luck,
+            speed,
+        )
 
         self.mp = maxmp
         self.maxmp = maxmp
@@ -208,6 +282,9 @@ class Hero(Player):
             self.maxhp += level_settings["maxhp"]
             self.hp += level_settings["maxhp"]
             self.attack_power += level_settings["attack_power"]
+            self.magic_power += level_settings["magic_power"]
+            self.defense += level_settings["defense"]
+            self.magic_defense += level_settings["magic_defense"]
 
             time.sleep(0.5)
             print(f"<{self.name}はレベル{self.level}に上がった！>")
@@ -441,14 +518,27 @@ class Monster(Player):
         self,
         name,
         maxhp,
-        attack_power,
         attacks,
+        attack_power=10,
+        magic_power=10,
+        defense=10,
+        magic_defense=10,
+        luck=10,
         speed=10,
         target_selector=None,
         attack_chooser=None,
         exp=0,
     ):
-        super().__init__(name, maxhp, attack_power, speed)
+        super().__init__(
+            name,
+            maxhp,
+            attack_power,
+            magic_power,
+            defense,
+            magic_defense,
+            luck,
+            speed
+        )
 
         self.attacks = attacks
         self.exp = exp
@@ -497,8 +587,26 @@ class Monster(Player):
         attack_id = self.choose_attack()
         self.attacks[attack_id]["function"](self, target)
 
-    def use_skill(self, target, skill_name, multiplier, status_key=None, turn=0, chance=0.0):
-        damage_effect(self, target, f"<{self.name}の{skill_name}！>", multiplier, status_key, turn, chance)
+    def use_skill(
+        self,
+        target,
+        skill_name,
+        multiplier,
+        status_key=None,
+        turn=0,
+        chance=0.0,
+        damage_type="physical",
+    ):
+        damage_effect(
+            self,
+            target,
+            f"<{self.name}の{skill_name}！>",
+            multiplier=multiplier,
+            status_key=status_key,
+            turn=turn,
+            chance=chance,
+            damage_type=damage_type,
+        )
 
 # =======================================================================
 # 所持品
@@ -538,20 +646,41 @@ def create_party(input_func=None) -> list:
     players = [
         Hero(
             "勇者",
-            200,
+            150,
             30,
-            20,
             inventory,
+            attack_power=20,
+            magic_power=20,
+            defense=15,
+            magic_defense=15,
+            luck=10,
             speed=15,
             input_func=input_func
         ),
         Hero(
             "戦士",
-            150,
+            200,
             0,
-            40,
             inventory,
+            attack_power=40,
+            magic_power=5,
+            defense=25,
+            magic_defense=5,
+            luck=10,
             speed=8,
+            input_func=input_func
+        ),
+        Hero(
+            "魔術師",
+            100,
+            60,
+            inventory,
+            attack_power=5,
+            magic_power=40,
+            defense=5,
+            magic_defense=25,
+            luck=10,
+            speed=5,
             input_func=input_func
         ),
     ]
@@ -571,24 +700,36 @@ def create_normal_monsters() -> list:
         Monster(
             "スライムA",
             50,
-            10,
             slime_attacks,
+            attack_power=10,
+            magic_power=10,
+            defense=5,
+            magic_defense=15,
+            luck=10,
             speed=10,
             exp=8,
         ),
         Monster(
             "スライムB",
             70,
-            8,
             slime_attacks,
+            attack_power=8,
+            magic_power=10,
+            defense=5,
+            magic_defense=15,
+            luck=10,
             speed=6,
             exp=10,
         ),
         Monster(
             "ゴブリンA",
             80,
-            15,
             goblin_attacks,
+            attack_power=12,
+            magic_power=0,
+            defense=10,
+            magic_defense=5,
+            luck=10,
             speed=18,
             target_selector=select_lowest_hp_ratio_target,
             exp=20,
@@ -602,31 +743,18 @@ def create_boss_monsters() -> list:
     dragon = Monster(
         "ドラゴン",
         250,
-        22,
         dragon_attacks,
-        12,
-        select_lowest_hp_ratio_target,
-        exp=60
+        attack_power=25,
+        magic_power=25,
+        defense=20,
+        magic_defense=10,
+        luck=10,
+        speed=12,
+        target_selector=select_lowest_hp_ratio_target,
+        exp=100
     )
 
     return [dragon]
-
-
-def calculation_damage(attack_power) -> int:
-    fluctuation = 25
-
-    damage = round(
-        attack_power
-        * (1 + random.randint(-fluctuation, fluctuation) / 100)
-    )
-
-    critical_percent = 20
-
-    if random.random() < critical_percent / 100:
-        damage *= 2
-        print("<クリティカル！>")
-
-    return damage
 
 
 def distribute_exp(players, monsters) -> int:
@@ -824,15 +952,31 @@ def revive_effect(user, target, announce, ratio) -> bool:
     return True
 
 
-def damage_effect(user, target, announce, multiplier, status_key=None, turn=0, chance=0.0) -> bool:
+def damage_effect(
+    user,
+    target,
+    announce,
+    multiplier,
+    status_key=None,
+    turn=0,
+    chance=0.0,
+    damage_type="physical",
+) -> bool:
     print(announce)
-    damage = round(calculation_damage(user.get_attack_power()) * multiplier)
-    target.take_damage(damage)
+    damage = round(user.calculation_damage(user.get_attack_damage(damage_type)) * multiplier)
+    target.take_damage(damage, damage_type)
 
     if status_key is not None and target.hp > 0 and random.random() <= chance:
         target.inflict_status(status_key, turn)
 
     return True
+
+
+def reduce_by_defense(damage, defense) -> int:
+    # 防御力が高いほど、少しずつ効き目が小さくなる
+    scale = damage_settings["defense_scale"]
+    return max(1, round(damage * scale / (scale + defense)))
+
 
 # =======================================================================
 # 戦闘進行
@@ -1044,7 +1188,7 @@ dragon_attacks = {
     30: {
         "name": "炎のブレス",
         "function": lambda monster, target: monster.use_skill(
-            target, "炎のブレス", 1.4, "burn_turn", 3, 0.5
+            target, "炎のブレス", 1.4, "burn_turn", 3, 0.5, damage_type="magic"
         ),
         "weight": lambda hp_ratio: 0 if hp_ratio >= 0.5 else 8
     },
@@ -1070,6 +1214,13 @@ status_definitions = {
         "blocks_action": False,
         "attack_multiplier": 0.5
     },
+    "spell_interruption_turn": {
+        "label": "詠唱妨害",
+        "message": "口が回らない!",
+        "damage": 0,
+        "blocks_action": False,
+        "magic_multiplier": 0.5
+    },
 }
 
 magics = {
@@ -1079,7 +1230,13 @@ magics = {
         "target_side": "enemy",
         "target_state": "alive",
         "effect": damage_effect,
-        "params": {"multiplier": 1.3, "status_key": "burn_turn", "turn": 3, "chance": 0.3},
+        "params": {
+            "multiplier": 1.3,
+            "status_key": "burn_turn",
+            "turn": 3,
+            "chance": 0.3,
+            "damage_type": "magic",
+        },
     },
     3: {
         "name": "ポイズン",
@@ -1087,7 +1244,13 @@ magics = {
         "target_side": "enemy",
         "target_state": "alive",
         "effect": damage_effect,
-        "params": {"multiplier": 0.5, "status_key": "poison_turn", "turn": 3, "chance": 1.0},
+        "params": {
+            "multiplier": 0.5,
+            "status_key": "poison_turn",
+            "turn": 3,
+            "chance": 1.0,
+            "damage_type": "magic",
+        },
     },
     4: {
         "name": "ヒール",
@@ -1119,6 +1282,13 @@ level_settings = {
     "exp_per_level": 30,
     "maxhp": 20,
     "attack_power": 4,
+    "magic_power": 4,
+    "defense": 2,
+    "magic_defense": 2,
+}
+
+damage_settings = {
+    "defense_scale": 100,
 }
 
 rest_settings = {
